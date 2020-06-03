@@ -151,11 +151,13 @@ class Server(BaseServer):
             current_masks = await self._mode_list(channel, CONFIG.quiet)
             current_masks_set = set(f"{m[0]}-{m[1]}" for m in current_masks)
 
+            now = int(pendulum.now("utc").timestamp())
+
             # which bans/quiets were removed while we weren't watching
             for type, mask in tracked_masks:
                 print("tracked", type, mask)
                 if not f"{type}-{mask}" in current_masks_set:
-                    DB.set_expired(channel, type, mask)
+                    DB.set_removed(channel, type, mask, None, now)
             # which bans/quiets were added while we weren't watching
             for type, mask, set_by, set_at in current_masks:
                 print("current", type, mask)
@@ -190,7 +192,7 @@ class Server(BaseServer):
                 type = Types.BAN if mode[1] == "b" else Types.QUIET
                 # this could be a +b or a -b for an existing mask.
                 # either way, we want to expire any previous instances of it
-                DB.set_expired(channel_name, type, arg)
+                DB.set_removed(channel_name, type, arg, line.source, now)
 
                 if mode[0] == "+":
                     # a new ban or quiet! lets track it
@@ -295,12 +297,14 @@ class Server(BaseServer):
                     duration = maybe_duration
                 reason = message.strip()
 
+                now = int(pendulum.now("utc").timestamp())
+
                 outs: List[str] = []
                 if len(reason):
-                    DB.set_reason(ban_id, line.source, reason)
+                    DB.set_reason(ban_id, line.source, now, reason)
                     outs.append("reason")
                 if duration > -1:
-                    DB.set_duration(ban_id, line.source, duration)
+                    DB.set_duration(ban_id, line.source, now, duration)
                     outs.append("duration")
 
                 out = " and ".join(outs)

@@ -1,5 +1,5 @@
 import os.path, sqlite3
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 class BanDatabase(object):
     def __init__(self, location: str):
@@ -17,11 +17,16 @@ class BanDatabase(object):
                     set_by TEXT,
                     set_at INTEGER,
 
-                    expires_by TEXT,
-                    expires_at INTEGER NOT NULL,
+                    expire_set_by TEXT,
+                    expire_set_at INTEGER,
+                    expires_at INTEGER,
 
-                    reason_by TEXT,
-                    reason TEXT
+                    reason_set_by TEXT,
+                    reason_set_at INTEGER,
+                    reason TEXT,
+
+                    removed_by TEXT,
+                    removed_at INTEGER
                 )
             """)
 
@@ -30,7 +35,7 @@ class BanDatabase(object):
         cursor = self._db.cursor()
         cursor.execute("""
             SELECT mask FROM bans
-            WHERE channel=? AND type=? AND expires_at > -1
+            WHERE channel=? AND type=? AND removed_at IS NULL
         """, [channel, type])
         return [row[0] for row in cursor.fetchall()]
 
@@ -51,18 +56,24 @@ class BanDatabase(object):
         out = cursor.fetchone()
         return (out or ["0"])[0] == "1"
 
-    def set_expired(self, channel: str, type: int, mask: str):
+    def set_removed(self,
+            channel: str,
+            type: int,
+            mask: str,
+            removed_by: Optional[str],
+            removed_at: int):
+        print("removing", channel, mask, removed_by, removed_at)
         self._db.execute("""
             UPDATE bans
-            SET expires_at=-1
-            WHERE channel=? AND mask=? AND expires_at > -1
-        """, [channel, mask])
+            SET removed_by=?, removed_at=?
+            WHERE type=? AND channel=? AND mask=? AND removed_at IS NULL
+        """, [removed_by, removed_at, type, channel, mask])
 
     def get_last(self, channel: str):
         cursor = self._db.cursor()
         cursor.execute("""
             SELECT ban_id FROM bans
-            WHERE channel=? AND expires_at > -1
+            WHERE channel=? AND removed_at IS NULL
             ORDER BY ban_id DESC
             LIMIT 1
         """, [channel])
@@ -76,19 +87,27 @@ class BanDatabase(object):
             set_by: str,
             set_at: int) -> int:
         self._db.execute("""
-            INSERT INTO bans (channel, type, mask, set_by, set_at, expires_at)
-            VALUES (?, ?, ?, ?, ?, 0)
+            INSERT INTO bans (channel, type, mask, set_by, set_at)
+            VALUES (?, ?, ?, ?, ?)
         """, [channel, type, mask, set_by, set_at])
         return self.get_last(channel)
 
-    def set_reason(self, ban_id: int, reason_by: str, reason: str):
+    def set_reason(self,
+            ban_id: int,
+            reason_set_by: str,
+            reason_set_at: int,
+            reason: str):
         self._db.execute("""
             UPDATE bans
-            SET reason=?, reason_by=?
+            SET reason_set_by=?, reason_set_at=?, reason=?
             WHERE ban_id=?
-        """, [reason, reason_by, ban_id])
+        """, [reason_set_by, reason_set_at, reason, ban_id])
 
-    def set_duration(self, ban_id: int, duration_by: str, duration: int):
+    def set_duration(self,
+            ban_id: int,
+            expire_set_by: str,
+            expire_set_at: int,
+            duration: int):
         cursor = self._db.cursor()
         cursor.execute("""
             SELECT set_at FROM bans
@@ -99,14 +118,14 @@ class BanDatabase(object):
 
         self._db.execute("""
             UPDATE bans
-            SET expires_at=?, expires_by=?
+            SET expire_set_by=?, expire_set_at=?, expires_at=?
             WHERE ban_id=?
-        """, [expires_at, duration_by, ban_id])
+        """, [expire_set_by, expire_set_at, expires_at, ban_id])
 
     def get_before(self, timestamp: int) -> List[Tuple[str, int, str]]:
         cursor = self._db.cursor()
         cursor.execute("""
             SELECT channel, type, mask FROM bans
-            WHERE expires_at > 0 AND expires_at < ?
+            WHERE expires_at IS NOT NULL AND expires_at < ?
         """, [timestamp])
         return cursor.fetchall() or []
