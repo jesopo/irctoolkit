@@ -28,25 +28,28 @@ CHANSERV = Nick("ChanServ")
 ENFORCE_REASON = "User is banned from this channel"
 
 class Server(BaseServer):
+    async def _assure_op(self, channel) -> bool:
+        channel_self = channel.users[self.nickname_lower]
+        if not "o" in channel_self.modes and CONFIG.chanserv:
+            await self.send(build("CS", ["OP", channel.name]))
+            await self.wait_for(
+                Response(
+                    "MODE",
+                    [Folded(channel.name), "+o", SELF],
+                    source=CHANSERV
+                )
+            )
+            return True
+        else:
+            return False
+
     async def _remove_modes(self,
             channel_name: str,
             type_masks:   List[Tuple[int, str]]):
 
         if channel_name in self.channels:
-            channel = self.channels[channel_name]
-            channel_self = channel.users[self.nickname_lower]
-            remove_op = False
-
-            if not "o" in channel_self.modes and CONFIG.chanserv:
-                remove_op = True
-                await self.send(build("CS", ["OP", channel_name]))
-                await self.wait_for(
-                    Response(
-                        "MODE",
-                        [Folded(channel_name), "+o", SELF],
-                        source=CHANSERV
-                    )
-                )
+            channel   = self.channels[channel_name]
+            remove_op = await self._assure_op(channel)
 
             modes = ""
             args: List[str] = []
@@ -216,11 +219,18 @@ class Server(BaseServer):
                     for user_mask, user in user_masks.items():
                         if ban_mask_compiled.match(user_mask):
                             affected.add(user)
-                # kick the bad guys
-                for user in affected:
-                    await self.send(build(
-                        "KICK", [channel_name, user.nickname, ENFORCE_REASON]
-                    ))
+
+                if affected:
+                    remove_op = await self._assure_op(channel)
+                    # kick the bad guys
+                    for user in affected:
+                        await self.send(build(
+                            "KICK", [channel_name, user.nickname, ENFORCE_REASON]
+                        ))
+                    if remove_op:
+                        await self.send(build(
+                            "MODE", [channel_name, "-o", self.nickname]
+                        ))
 
         elif (line.command == "PRIVMSG" and
                 line.source is not None and
