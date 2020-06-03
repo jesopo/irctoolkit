@@ -15,6 +15,7 @@ from ircrobots import ConnectionParams, SASLUserPass
 
 from ircstates.numerics import *
 from ircrobots.glob     import compile as glob_compile
+from ircrobots.glob     import Glob
 from ircrobots.matching import Response, Responses, ANY, Folded, Nick, SELF
 
 from .utils    import from_pretty_time
@@ -25,7 +26,7 @@ DB:     BanDatabase
 CONFIG: Config
 
 CHANSERV = Nick("ChanServ")
-ENFORCE_REASON = "User is banned from this channel"
+ENFORCE_REASON = "User is banned from this channel ({id})"
 
 class Server(BaseServer):
     async def _assure_op(self, channel) -> bool:
@@ -182,7 +183,9 @@ class Server(BaseServer):
                     modes.append((f"{modifier}{c}", args.pop(0)))
 
             now = int(pendulum.now("utc").timestamp())
-            ban_masks: List[str] = []
+            ban_globs:   List[Tuple[int, Glob]] = []
+            ban_removes: List[str] = []
+            our_hostmask = f"{self.nickname}!{self.username}@{self.hostname}"
             for mode, arg in modes:
                 type = Types.BAN if mode[1] == "b" else Types.QUIET
                 # this could be a +b or a -b for an existing mask.
@@ -197,11 +200,17 @@ class Server(BaseServer):
                         channel_name, line.hostmask.nickname, ban_id)
 
                     if type == Types.BAN:
-                        # specifically - a ban. maybe act on this
-                        ban_masks.append(arg)
+                        compiled_mask = glob_compile(arg)
+                        if compiled_mask.match(our_hostmask):
+                            # someone tried to ban me! no!
+                            ban_removes.append(arg)
+                        else:
+                            # this is a ban and it's not against us,
+                            # enforce it
+                            ban_globs.append((ban_id, compiled_mask))
 
             # whether or not to remove people affected by new bans
-            if ban_masks and CONFIG.enforce:
+            if ban_globs and CONFIG.enforce:
                 channel = self.channels[channel_name]
 
                 # get hostmask for every non-status user
@@ -212,20 +221,20 @@ class Server(BaseServer):
                         users.append(user)
                 user_masks = {u.hostmask(): u for u in users}
 
-                affected: Set[User] = set([])
-                for ban_mask in ban_masks:
-                    # compile mask and test against each user
-                    ban_mask_compiled = glob_compile(ban_mask)
-                    for user_mask, user in user_masks.items():
-                        if ban_mask_compiled.match(user_mask):
-                            affected.add(user)
+                affected: List[Tuple[User, int]] = []
+                # compile mask and test against each user
+                for user_mask, user in user_masks.items():
+                    for ban_id, ban_glob in ban_globs:
+                        if ban_glob.match(user_mask):
+                            affected.append((user, ban_id))
 
                 if affected:
                     remove_op = await self._assure_op(channel)
                     # kick the bad guys
-                    for user in affected:
+                    for user, ban_id in affected:
+                        reason = ENFORCE_REASON.format(id=ban_id)
                         await self.send(build(
-                            "KICK", [channel_name, user.nickname, ENFORCE_REASON]
+                            "KICK", [channel_name, user.nickname, reason]
                         ))
                     if remove_op:
                         await self.send(build(
