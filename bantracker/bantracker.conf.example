@@ -1,0 +1,12 @@
+[bot]
+nick = mybanbot
+host = chat.freenode.net
+port = 6697
+tls  = yes
+db   = ~/.bantracker.db
+sasl = mybanbot:hunter2
+
+channels    = ##mychannel
+chanserv    = yes
+ban-enforce = yes
+quiet       = q
