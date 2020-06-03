@@ -334,13 +334,14 @@ async def main(
     DB = BanDatabase(config.db)
 
     async def _expire_timer():
-        now = pendulum.now("utc")
-        until_minute = 60-now.second
-        await asyncio.sleep(until_minute)
+        while True:
+            now = pendulum.now("utc")
+            until_minute = 60-now.second
+            await asyncio.sleep(until_minute)
 
-        if bot.servers:
-            server = bot.servers[params.host]
-            await server.send(build("PING", ["expirecheck"]))
+            if bot.servers:
+                server = bot.servers[params.host]
+                await server.send(build("PING", ["expirecheck"]))
     asyncio.create_task(_expire_timer())
 
     await bot.run()
