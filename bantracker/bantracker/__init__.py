@@ -137,7 +137,7 @@ class Server(BaseServer):
         elif (target in self.channels and
                 self.casefold(target) == ban_channel):
             channel  = self.channels[target]
-            nickname = self.casefold(hostmask.nickname)
+            nickname = self.casefold(line.hostmask.nickname)
             if (nickname in channel.users and
                     "o" in channel.users[nickname].modes):
                 return True
