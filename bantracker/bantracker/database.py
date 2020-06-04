@@ -126,6 +126,6 @@ class BanDatabase(object):
         cursor = self._db.cursor()
         cursor.execute("""
             SELECT channel, type, mask FROM bans
-            WHERE expires_at IS NOT NULL AND expires_at < ?
+            WHERE removed_at IS NULL AND expires_at < ?
         """, [timestamp])
         return cursor.fetchall() or []
