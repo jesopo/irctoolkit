@@ -6,10 +6,11 @@ from typing       import Any, Dict, List, Optional
 @dataclass
 class BotConfig(object):
     data:     str
+    accban:   Optional[str]
     channels: List[str]
-    trigger:  str
     chanserv: bool
     enforce:  bool
+    trigger:  str
     quiet:    Optional[str]
 
 def _yes_bool(s: str) -> bool:

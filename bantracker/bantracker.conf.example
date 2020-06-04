@@ -7,6 +7,7 @@ sasl = mybanbot:hunter2
 #tls_verify = yes
 #bindhost   = 192.168.0.64
 
+accban   = $a:{account}
 channels = ##mychannel
 chanserv = yes
 enforce  = yes

@@ -8,7 +8,7 @@ from enum         import IntEnum
 from typing       import Dict, List, Optional, Set, Tuple
 
 from irctokens import build, Hostmask, Line
-from ircstates import User
+from ircstates import Channel, User
 from ircrobots import Bot as BaseBot
 from ircrobots import Server as BaseServer
 from ircrobots import ConnectionParams, SASLUserPass
@@ -35,10 +35,10 @@ CHANSERV = Nick("ChanServ")
 ENFORCE_REASON = "User is banned from this channel ({id})"
 
 class Server(BaseServer):
-    async def _assure_op(self, channel) -> bool:
+    async def _assure_op(self, channel: Channel) -> bool:
         channel_self = channel.users[self.nickname_lower]
         if not "o" in channel_self.modes and (
-                CHAN_CONFIGS.get(channel).chanserv or
+                CHAN_CONFIGS.get(channel.name).chanserv or
                 CONFIG.chanserv):
             await self.send(build("CS", ["OP", channel.name]))
             await self.wait_for(
@@ -152,6 +152,19 @@ class Server(BaseServer):
                 return True
         return False
 
+    def _channel_masks(self, channel: Channel) -> List[Tuple[str, User]]:
+        masks: List[Tuple[str, User]] = []
+        for nickname in channel.users:
+            if (not self.is_me(nickname) and
+                    not channel.users[nickname].modes):
+                user = self.users[nickname]
+                masks.append((user.hostmask(), user))
+                if (CONFIG.accban is not None and
+                        user.account is not None):
+                    accban = CONFIG.accban.format(account=user.account)
+                    masks.append((accban, user))
+        return masks
+
     async def line_read(self, line: Line):
         if line.command == RPL_WELCOME:
             # we have successfully connected - join all our channels!
@@ -235,20 +248,11 @@ class Server(BaseServer):
                     CONFIG.enforce):
                 channel = self.channels[channel_name]
 
-                # get hostmask for every non-status user
-                users: List[User] = []
-                for nickname in channel.users:
-                    # don't kick +v/+o/foo
-                    if (not channel.users[nickname].modes and
-                            # don't kick ourselves
-                            not nickname == self.nickname_lower):
-                        user = self.users[nickname]
-                        users.append(user)
-                user_masks = {u.hostmask(): u for u in users}
+                user_masks = self._channel_masks(channel)
 
                 affected: List[Tuple[User, int]] = []
                 # compile mask and test against each user
-                for user_mask, user in user_masks.items():
+                for user_mask, user in user_masks:
                     for ban_id, ban_glob in ban_adds:
                         if ban_glob.match(user_mask):
                             affected.append((user, ban_id))
@@ -445,10 +449,11 @@ def _main():
     # grab db filename and list of channels to join
     bot_config = BotConfig(
         data,
+        config.get("accban", None),
         [c.strip() for c in config["channels"].split(",")],
-        config.get("trigger", "!"),
         config.get("chanserv", "no") == "yes",
         config.get("enforce", "no") == "yes",
+        config.get("trigger", "!"),
         config.get("quiet", None)
     )
 
