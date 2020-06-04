@@ -200,8 +200,7 @@ class Server(BaseServer):
                     modes.append((f"{modifier}{c}", args.pop(0)))
 
             now = int(pendulum.now("utc").timestamp())
-            ban_globs:   List[Tuple[int, Glob]] = []
-            ban_removes: List[str] = []
+            ban_adds: List[Tuple[int, Glob]] = []
             our_hostmask = f"{self.nickname}!{self.username}@{self.hostname}"
             for mode, arg in modes:
                 type = Types.BAN if mode[1] == "b" else Types.QUIET
@@ -211,29 +210,27 @@ class Server(BaseServer):
 
                 if mode[0] == "+":
                     # a new ban or quiet! lets track it
-                    ban_id = DB.add(
-                        channel_name, type, arg, line.source, now)
+                    ban_id = DB.add(channel_name, type, arg, line.source, now)
                     await self._notify(
-                        channel_name, line.hostmask.nickname, ban_id)
+                        channel_name, line.hostmask.nickname, ban_id
+                    )
 
                     if type == Types.BAN:
-                        compiled_mask = glob_compile(arg)
-                        if compiled_mask.match(our_hostmask):
-                            # someone tried to ban me! no!
-                            ban_removes.append(arg)
-                        else:
-                            # this is a ban and it's not against us,
-                            # enforce it
-                            ban_globs.append((ban_id, compiled_mask))
+                        # this is a ban - we might want to enforce it
+                        compiled = glob_compile(arg)
+                        ban_adds.append((ban_id, compiled))
 
             # whether or not to remove people affected by new bans
-            if ban_globs and CONFIG.enforce:
+            if ban_adds and CONFIG.enforce:
                 channel = self.channels[channel_name]
 
                 # get hostmask for every non-status user
                 users: List[User] = []
                 for nickname in channel.users:
-                    if not channel.users[nickname].modes:
+                    # don't kick +v/+o/foo
+                    if (not channel.users[nickname].modes and
+                            # don't kick ourselves
+                            not nickname == self.nickname_lower):
                         user = self.users[nickname]
                         users.append(user)
                 user_masks = {u.hostmask(): u for u in users}
@@ -241,7 +238,7 @@ class Server(BaseServer):
                 affected: List[Tuple[User, int]] = []
                 # compile mask and test against each user
                 for user_mask, user in user_masks.items():
-                    for ban_id, ban_glob in ban_globs:
+                    for ban_id, ban_glob in ban_adds:
                         if ban_glob.match(user_mask):
                             affected.append((user, ban_id))
 
