@@ -7,7 +7,7 @@ from dataclasses  import dataclass
 from enum         import IntEnum
 from typing       import Dict, List, Optional, Set, Tuple
 
-from irctokens import build, Line
+from irctokens import build, Hostmask, Line
 from ircstates import User
 from ircrobots import Bot as BaseBot
 from ircrobots import Server as BaseServer
@@ -125,6 +125,23 @@ class Server(BaseServer):
 
         for channel, type_masks in expired_groups.items():
             await self._remove_modes(channel, type_masks)
+
+    def _has_permission(self,
+            ban_id: int,
+            set_by: str,
+            ban_channel: str,
+            line: Line) -> bool:
+        target = self.casefold(line.params[0])
+        if self.casefold(line.source) == self.casefold(set_by):
+            return True
+        elif (target in self.channels and
+                self.casefold(target) == ban_channel):
+            channel  = self.channels[target]
+            nickname = self.casefold(hostmask.nickname)
+            if (nickname in channel.users and
+                    "o" in channel.users[nickname].modes):
+                return True
+        return False
 
     async def line_read(self, line: Line):
         if line.command == RPL_WELCOME:
@@ -271,15 +288,9 @@ class Server(BaseServer):
                         # ban does not exist
                         raise Exception()
 
-                ban_channel, type, mask, setby, _, _2 = DB.get_ban(ban_id)
-                if line.source == setby:
-                    pass
-                elif (self.has_channel(line.params[0]) and
-                        self.casefold(line.params[0]) == ban_channel and
-                        sender in self.channels[ban_channel].users and
-                        "o" in self.channels[ban_channel].users[sender].modes):
-                    pass
-                else:
+                ban_channel, type, mask, set_by, _, _2 = DB.get_ban(ban_id)
+
+                if not self._has_permission(ban_id, set_by, ban_channel, line):
                     # you do not have permission to do this
                     raise Exception()
 
