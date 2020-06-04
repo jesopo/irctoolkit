@@ -172,12 +172,10 @@ class Server(BaseServer):
 
             # which bans/quiets were removed while we weren't watching
             for type, mask in tracked_masks:
-                print("tracked", type, mask)
                 if not f"{type}-{mask}" in current_masks_set:
                     DB.set_removed(channel, type, mask, None, now)
             # which bans/quiets were added while we weren't watching
             for type, mask, set_by, set_at in current_masks:
-                print("current", type, mask)
                 if not f"{type}-{mask}" in tracked_masks_set:
                     DB.add(channel, type, mask, set_by, set_at)
 
