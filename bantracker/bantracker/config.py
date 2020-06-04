@@ -1,7 +1,6 @@
 import os
 from configparser import ConfigParser
 from dataclasses  import dataclass
-from enum         import IntEnum
 from typing       import Any, Dict, List, Optional
 
 @dataclass
@@ -65,7 +64,3 @@ class ChannelConfigs(object):
             config_obj.read_dict({"bot": existing.out()})
             with open(filename, "w") as file_obj:
                 config_obj.write(file_obj)
-
-class Types(IntEnum):
-    BAN   = 1
-    QUIET = 2

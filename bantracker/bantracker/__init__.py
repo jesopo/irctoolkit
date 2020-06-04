@@ -19,8 +19,12 @@ from ircrobots.glob     import Glob
 from ircrobots.matching import Response, Responses, ANY, Folded, Nick, SELF
 
 from .utils    import from_pretty_time
-from .obj      import BotConfig, ChannelConfig, ChannelConfigs, Types
+from .config   import BotConfig, ChannelConfig, ChannelConfigs
 from .database import BanDatabase
+
+class Types(IntEnum):
+    BAN   = 1
+    QUIET = 2
 
 DATA:         str
 DB:           BanDatabase
