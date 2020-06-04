@@ -8,7 +8,7 @@ from enum         import IntEnum
 from typing       import Dict, List, Optional, Set, Tuple
 
 from irctokens import build, Hostmask, Line
-from ircstates import Channel, User
+from ircstates import Channel, User, ChannelUser
 from ircrobots import Bot as BaseBot
 from ircrobots import Server as BaseServer
 from ircrobots import ConnectionParams, SASLUserPass
@@ -52,6 +52,22 @@ class Server(BaseServer):
         else:
             return False
 
+    async def _do_modes(self,
+            channel: str,
+            add:     bool,
+            modes:   str,
+            args:    List[str]):
+
+        chunk_n = self.isupport.modes
+        modifier = "+" if add else "-"
+        for i in range(0, len(modes), chunk_n):
+            cur_slice = slice(i, i+chunk_n)
+            cur_modes = modes[cur_slice]
+            cur_args  =  args[cur_slice]
+            await self.send(build(
+                "MODE", [channel, f"{modifier}{cur_modes}"]+cur_args
+            ))
+
     async def _remove_modes(self,
             channel_name: str,
             type_masks:   List[Tuple[int, str]]):
@@ -76,14 +92,7 @@ class Server(BaseServer):
                 modes += "o"
                 args.append(self.nickname)
 
-            chunk_n = self.isupport.modes
-            for i in range(0, len(modes), chunk_n):
-                mode_str  = modes[i:i+chunk_n]
-                mode_args =  args[i:i+chunk_n]
-                await self.send(build(
-                    "MODE",
-                    [channel_name, f"-{mode_str}"]+mode_args
-                ))
+            await self._do_modes(channel_name, False, modes, args)
 
     async def _mode_list(self,
             channel: str,
@@ -152,12 +161,12 @@ class Server(BaseServer):
                 return True
         return False
 
-    def _channel_masks(self, channel: Channel) -> List[Tuple[str, User]]:
+    def _channel_masks(self, channel: Channel
+            ) -> List[Tuple[str, User]]:
         masks: List[Tuple[str, User]] = []
         for nickname in channel.users:
-            if (not self.is_me(nickname) and
-                    not channel.users[nickname].modes):
-                user = self.users[nickname]
+            if not self.is_me(nickname):
+                user  = self.users[nickname]
                 masks.append((user.hostmask(), user))
                 if (CONFIG.accban is not None and
                         user.account is not None):
@@ -222,7 +231,7 @@ class Server(BaseServer):
                     modes.append((f"{modifier}{c}", args.pop(0)))
 
             now = int(pendulum.now("utc").timestamp())
-            ban_adds: List[Tuple[int, Glob]] = []
+            maybe_enforce: List[Tuple[int, int, Glob]] = []
             our_hostmask = f"{self.nickname}!{self.username}@{self.hostname}"
             for mode, arg in modes:
                 type = Types.BAN if mode[1] == "b" else Types.QUIET
@@ -237,38 +246,54 @@ class Server(BaseServer):
                         channel_name, line.hostmask.nickname, ban_id
                     )
 
-                    if type == Types.BAN:
-                        # this is a ban - we might want to enforce it
-                        compiled = glob_compile(arg)
-                        ban_adds.append((ban_id, compiled))
+                    compiled = glob_compile(arg)
+                    maybe_enforce.append((type, ban_id, compiled))
 
             # whether or not to remove people affected by new bans
-            if ban_adds and (
+            if maybe_enforce and (
                     CHAN_CONFIGS.get(channel_name).enforce or
                     CONFIG.enforce):
                 channel = self.channels[channel_name]
 
                 user_masks = self._channel_masks(channel)
 
-                affected: List[Tuple[User, int]] = []
+                kicks:    List[Tuple[User, int]] = []
+                devoices: List[User] = []
                 # compile mask and test against each user
                 for user_mask, user in user_masks:
-                    for ban_id, ban_glob in ban_adds:
-                        if ban_glob.match(user_mask):
-                            affected.append((user, ban_id))
+                    cuser = channel.users[user.nickname_lower]
+                    for type, ban_id, compiled in maybe_enforce:
+                        if (type == Types.BAN and
+                                not cuser.modes and
+                                compiled.match(user_mask)):
+                            kicks.append((user, ban_id))
+                        elif (type == Types.QUIET and
+                                cuser.modes == ["v"]):
+                            devoices.append(user)
 
-                if affected:
+                if kicks or devoices:
                     remove_op = await self._assure_op(channel)
                     # kick the bad guys
-                    for user, ban_id in affected:
+                    for user, ban_id in kicks:
                         reason = ENFORCE_REASON.format(id=ban_id)
                         await self.send(build(
                             "KICK", [channel_name, user.nickname, reason]
                         ))
+
+                    rem_modes = ""
+                    rem_args: List[str] = []
+                    if CONFIG.quiet is not None:
+                        for user in devoices:
+                            rem_modes += CONFIG.quiet
+                            rem_args.append(user.nickname)
+
                     if remove_op:
-                        await self.send(build(
-                            "MODE", [channel_name, "-o", self.nickname]
-                        ))
+                        rem_modes += "o"
+                        rem_args.append(self.nickname)
+                    if rem_modes:
+                        await self._do_modes(
+                            channel_name, False, rem_modes, rem_args
+                        )
 
         elif (line.command == "PRIVMSG" and
                 line.source is not None):
