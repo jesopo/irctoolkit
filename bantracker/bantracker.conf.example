@@ -1,7 +1,7 @@
 [bot]
 nick = mybanbot
 host = chat.freenode.net:+6697
-db   = ~/.bantracker.db
+data = ~/.bantracker/
 sasl = mybanbot:hunter2
 
 #tls_verify = yes

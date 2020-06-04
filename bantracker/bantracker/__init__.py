@@ -1,4 +1,4 @@
-import asyncio, os.path
+import asyncio, os
 import pendulum
 
 from argparse     import ArgumentParser
@@ -19,11 +19,13 @@ from ircrobots.glob     import Glob
 from ircrobots.matching import Response, Responses, ANY, Folded, Nick, SELF
 
 from .utils    import from_pretty_time
-from .obj      import Config, Types
+from .obj      import BotConfig, ChannelConfig, ChannelConfigs, Types
 from .database import BanDatabase
 
-DB:     BanDatabase
-CONFIG: Config
+DATA:         str
+DB:           BanDatabase
+CONFIG:       BotConfig
+CHAN_CONFIGS: ChannelConfigs
 
 CHANSERV = Nick("ChanServ")
 ENFORCE_REASON = "User is banned from this channel ({id})"
@@ -31,7 +33,9 @@ ENFORCE_REASON = "User is banned from this channel ({id})"
 class Server(BaseServer):
     async def _assure_op(self, channel) -> bool:
         channel_self = channel.users[self.nickname_lower]
-        if not "o" in channel_self.modes and CONFIG.chanserv:
+        if not "o" in channel_self.modes and (
+                CHAN_CONFIGS.get(channel).chanserv or
+                CONFIG.chanserv):
             await self.send(build("CS", ["OP", channel.name]))
             await self.wait_for(
                 Response(
@@ -132,7 +136,8 @@ class Server(BaseServer):
             ban_channel: str,
             line: Line) -> bool:
         target = self.casefold(line.params[0])
-        if self.casefold(line.source) == self.casefold(set_by):
+        if (line.source is not None and
+                self.casefold(line.source) == self.casefold(set_by)):
             return True
         elif (target in self.channels and
                 self.casefold(target) == ban_channel):
@@ -221,7 +226,9 @@ class Server(BaseServer):
                         ban_adds.append((ban_id, compiled))
 
             # whether or not to remove people affected by new bans
-            if ban_adds and CONFIG.enforce:
+            if ban_adds and (
+                    CHAN_CONFIGS.get(channel_name).enforce or
+                    CONFIG.enforce):
                 channel = self.channels[channel_name]
 
                 # get hostmask for every non-status user
@@ -256,14 +263,47 @@ class Server(BaseServer):
                         ))
 
         elif (line.command == "PRIVMSG" and
-                line.source is not None and
-                line.params[1].startswith(CONFIG.trigger)):
-            sender  = self.casefold(line.hostmask.nickname)
-            message = line.params[1].replace(CONFIG.trigger, "", 1)
+                line.source is not None):
+            trigger = CONFIG.trigger
+            if self.is_channel(line.params[0]):
+                chan_config = CHAN_CONFIGS.get(self.casefold(line.params[0]))
+                if chan_config.trigger is not None:
+                    trigger = chan_config.trigger
+
+            message = line.params[1]
             command, _, message = message.partition(" ")
             command = command.lower()
 
-            if command == "comment":
+            if command == f"{trigger}set":
+                target = self.casefold(line.params[0])
+                if not target in self.channels:
+                    # this command must be used in-channel
+                    raise Exception()
+
+                channel  = self.channels[target]
+                nickname = self.casefold(line.hostmask.nickname)
+                cuser    = channel.users[nickname]
+                if not "o" in cuser.modes:
+                    # you do not have permission to do this
+                    raise Exception()
+
+                key, _, value = message.strip().partition(" ")
+                if not key and value:
+                    # please provide a key and value
+                    raise Exception()
+
+                chan_config = CHAN_CONFIGS.get(target)
+                try:
+                    set_value = chan_config.set(key, value)
+                except KeyError:
+                    # unknown setting
+                    raise Exception()
+
+                CHAN_CONFIGS.set(target)
+                out = f"Set {key} '{set_value}' for {channel.name}"
+                await self.send(build("NOTICE", [line.hostmask.nickname, out]))
+
+            elif command == f"{trigger}comment":
                 ban_id_s, _, message = message.partition(" ")
                 ban_id = -1
                 if ban_id_s == "^" and self.is_channel(line.params[0]):
@@ -316,7 +356,7 @@ class Server(BaseServer):
                 out = " and ".join(outs)
                 type_s = Types(type).name.lower()
                 out = f"Set {out} for {type_s} {ban_id} ({mask})"
-                await self.send(build("NOTICE", [sender, out]))
+                await self.send(build("NOTICE", [line.hostmask.nickname, out]))
 
     async def _notify(self, channel: str, set_by: str, ban_id: int):
         out = f"Ban {ban_id} added for {channel}"
@@ -333,15 +373,20 @@ class Bot(BaseBot):
 
 async def main(
         params: ConnectionParams,
-        config: Config):
+        config: BotConfig):
     bot = Bot()
     await bot.add_server(params.host, params)
 
     global CONFIG
     CONFIG = config
 
+    global CHAN_CONFIGS
+    chan_config_dir = os.path.join(config.data, "channels")
+    CHAN_CONFIGS    = ChannelConfigs(chan_config_dir)
+
     global DB
-    DB = BanDatabase(config.db)
+    db_file = os.path.join(config.data, "bantracker.db")
+    DB      = BanDatabase(db_file)
 
     async def _expire_timer():
         while True:
@@ -389,9 +434,13 @@ def _main():
         sasl_user, _, sasl_pass = config["sasl"].partition(":")
         params.sasl = SASLUserPass(sasl_user, sasl_pass)
 
+    data = os.path.expanduser(config["data"])
+    if not os.path.isdir(data):
+        os.makedirs(data)
+
     # grab db filename and list of channels to join
-    bot_config = Config(
-        os.path.expanduser(config["db"]),
+    bot_config = BotConfig(
+        data,
         [c.strip() for c in config["channels"].split(",")],
         config.get("trigger", "!"),
         config.get("chanserv", "no") == "yes",
