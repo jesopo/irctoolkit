@@ -282,10 +282,9 @@ class Server(BaseServer):
 
                     rem_modes = ""
                     rem_args: List[str] = []
-                    if CONFIG.quiet is not None:
-                        for user in devoices:
-                            rem_modes += CONFIG.quiet
-                            rem_args.append(user.nickname)
+                    for user in devoices:
+                        rem_modes += "v"
+                        rem_args.append(user.nickname)
 
                     if remove_op:
                         rem_modes += "o"
