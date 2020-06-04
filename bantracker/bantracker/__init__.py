@@ -366,12 +366,24 @@ def _main():
     config_obj.read(args.config)
     config = dict(config_obj["bot"])
 
-    # put config file connection-related items on to ConnectionParams
+    host, _, port_str   = config["host"].partition(":")
+    tls  = True
+    port = 6697
+    if port_str:
+        _, tls_symbol, port = port_str.rpartition("+")
+        port = int(port)
+        tls  = bool(tls_symbol)
+
+    tls_verify = config.get("tls_verify", "yes") == "yes"
+    bindhost   = config.get("bind", None)
+
     params = ConnectionParams(
         config["nick"],
-        config["host"],
-        int(config["port"]),
-        config["tls"] == "yes"
+        host,
+        port,
+        tls,
+        tls_verify = tls_verify,
+        bindhost   = bindhost
     )
     if "sasl" in config:
         sasl_user, _, sasl_pass = config["sasl"].partition(":")

@@ -1,12 +1,14 @@
 [bot]
 nick = mybanbot
-host = chat.freenode.net
-port = 6697
-tls  = yes
+host = chat.freenode.net:+6697
 db   = ~/.bantracker.db
 sasl = mybanbot:hunter2
+
+#tls_verify = yes
+#bindhost   = 192.168.0.64
 
 channels    = ##mychannel
 chanserv    = yes
 ban-enforce = yes
 quiet       = q
+
