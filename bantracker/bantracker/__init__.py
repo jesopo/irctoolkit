@@ -395,7 +395,7 @@ def _main():
         [c.strip() for c in config["channels"].split(",")],
         config.get("trigger", "!"),
         config.get("chanserv", "no") == "yes",
-        config.get("ban-enforce", "no") == "yes",
+        config.get("enforce", "no") == "yes",
         config.get("quiet", None)
     )
 

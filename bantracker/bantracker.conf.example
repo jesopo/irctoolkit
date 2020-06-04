@@ -7,8 +7,8 @@ sasl = mybanbot:hunter2
 #tls_verify = yes
 #bindhost   = 192.168.0.64
 
-channels    = ##mychannel
-chanserv    = yes
-ban-enforce = yes
-quiet       = q
+channels = ##mychannel
+chanserv = yes
+enforce  = yes
+quiet    = q
 
