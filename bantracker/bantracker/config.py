@@ -49,9 +49,21 @@ class ChannelConfigs(object):
     def __init__(self, location: str):
         self._location = location
         self._channels: Dict[str, ChannelConfig] = {}
+    def _filename(self, channel: str):
+        return os.path.join(self._location, f"{channel}.conf")
+
     def get(self, channel: str) -> ChannelConfig:
         if not channel in self._channels:
             self._channels[channel] = ChannelConfig()
+            filename = self._filename(channel)
+            if os.path.isfile(filename):
+                config_obj = ConfigParser()
+                with open(filename) as file_obj:
+                    config_obj.read_file(file_obj)
+
+                config = self._channels[channel]
+                for key, value in dict(config_obj["channel"]).items():
+                    config.set(key, value)
         return self._channels[channel]
 
     def set(self, channel: str):
@@ -62,6 +74,6 @@ class ChannelConfigs(object):
                 os.mkdir(self._location)
             filename   = os.path.join(self._location, f"{channel}.conf")
             config_obj = ConfigParser()
-            config_obj.read_dict({"bot": existing.out()})
+            config_obj.read_dict({"channel": existing.out()})
             with open(filename, "w") as file_obj:
                 config_obj.write(file_obj)
