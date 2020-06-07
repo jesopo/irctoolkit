@@ -5,7 +5,7 @@ from argparse     import ArgumentParser
 from configparser import ConfigParser
 from dataclasses  import dataclass
 from enum         import IntEnum
-from typing       import Dict, List, Optional, Set, Tuple
+from typing       import Dict, Iterable, List, Optional, Set, Tuple
 
 from irctokens import build, Hostmask, Line
 from ircstates import Channel, User, ChannelUser
@@ -37,84 +37,65 @@ ENFORCE_REASON = "User is banned from this channel ({id})"
 class Server(BaseServer):
     async def _assure_op(self, channel: Channel) -> bool:
         channel_self = channel.users[self.nickname_lower]
-        if not "o" in channel_self.modes and (
-                CHAN_CONFIGS.get(channel.name).chanserv or
-                CONFIG.chanserv):
-            await self.send(build("CS", ["OP", channel.name]))
-            await self.wait_for(
-                Response(
-                    "MODE",
-                    [Folded(channel.name), "+o", SELF],
-                    source=CHANSERV
-                )
-            )
+        if not "o" in channel_self.modes:
+            await self.send(build(
+                "PRIVMSG", ["ChanServ", f"OP {channel.name}"]
+            ))
+            await self.wait_for(Response(
+                "MODE", [Folded(channel.name), "+o", SELF], source=CHANSERV
+            ))
             return True
         else:
             return False
 
-    async def _do_modes(self,
-            channel: str,
+    def _mode_batches(self,
+            chunk_n: int,
             add:     bool,
             modes:   str,
-            args:    List[str]):
+            args:    List[str]
+            ) -> Iterable[Tuple[str, List[str]]]:
 
-        chunk_n = self.isupport.modes
-        modifier = "+" if add else "-"
+        mod = "+" if add else "-"
         for i in range(0, len(modes), chunk_n):
             cur_slice = slice(i, i+chunk_n)
             cur_modes = modes[cur_slice]
             cur_args  =  args[cur_slice]
-            await self.send(build(
-                "MODE", [channel, f"{modifier}{cur_modes}"]+cur_args
-            ))
+            yield f"{mod}{modes[cur_slice]}", args[cur_slice]
 
     async def _remove_modes(self,
-            channel_name: str,
-            type_masks:   List[Tuple[int, str]]):
+            channel:   Channel,
+            modes:     str,
+            args:      List[str],
+            remove_op: bool):
 
-        if channel_name in self.channels:
-            channel   = self.channels[channel_name]
-            remove_op = await self._assure_op(channel)
+        if remove_op:
+            modes += "o"
+            args.append(self.nickname)
 
-            modes = ""
-            args: List[str] = []
-            for type, mask in type_masks:
-                if type   == Types.BAN:
-                    modes += "b"
-                elif type == Types.QUIET:
-                    if CONFIG.quiet is not None:
-                        modes += CONFIG.quiet
-                    else:
-                        continue
-                args.append(mask)
-
-            if remove_op:
-                modes += "o"
-                args.append(self.nickname)
-
-            await self._do_modes(channel_name, False, modes, args)
+        batches = self._mode_batches(
+            self.isupport.modes, False, modes, args
+        )
+        for b_modes, b_args in batches:
+            await self.send(build("MODE", [channel.name, b_modes]+b_args))
 
     async def _mode_list(self,
             channel: str,
-            quiet_mode: Optional[str]) -> List[Tuple[int, str, str, int]]:
-        mode_query = "b"
-        if quiet_mode is not None:
-            mode_query += quiet_mode
-        await self.send(build("MODE", [channel, f"+{mode_query}"]))
+            modes:   str
+            ) -> List[Tuple[int, str, str, int]]:
+
+        await self.send(build("MODE", [channel, f"+{modes}"]))
+
+        waiting = len(modes)
 
         masks: List[Tuple[int, str, str, int]] = []
-        done = 0
         while True:
-            line = await self.wait_for(Responses(
-                [
-                    RPL_BANLIST, RPL_ENDOFBANLIST,
-                    RPL_QUIETLIST, RPL_ENDOFQUIETLIST
-                ],
-                [ANY, Folded(channel)]
-            ))
+            line = await self.wait_for(Responses([
+                RPL_BANLIST, RPL_ENDOFBANLIST,
+                RPL_QUIETLIST, RPL_ENDOFQUIETLIST
+            ], [ANY, Folded(channel)]))
             if line.command in [RPL_ENDOFBANLIST, RPL_ENDOFQUIETLIST]:
-                done += 1
-                if done == len(mode_query):
+                waiting -= 1
+                if waiting == 0:
                     break
             else:
                 # :server 367 * #c mask set-by set-at
@@ -140,8 +121,25 @@ class Server(BaseServer):
                 expired_groups[channel] = []
             expired_groups[channel].append((type, mask))
 
-        for channel, type_masks in expired_groups.items():
-            await self._remove_modes(channel, type_masks)
+        for channel_name, type_masks in expired_groups.items():
+            if channel_name in self.channels:
+                channel = self.channels[channel_name]
+                remove_op = False
+                if CONFIG.chanserv:
+                    remove_op = await self._assure_op(channel)
+
+                modes = ""
+                args: List[str] = []
+                for type, mask in type_masks:
+                    if   type == Types.BAN:
+                        modes += "b"
+                    elif type == Types.QUIET:
+                        if CONFIG.quiet is not None:
+                            modes += CONFIG.quiet
+                        else:
+                            continue
+                    args.append(mask)
+                await self._remove_modes(channel, modes, args, remove_op)
 
     def _has_permission(self,
             ban_id: int,
@@ -161,18 +159,22 @@ class Server(BaseServer):
                 return True
         return False
 
-    def _channel_masks(self, channel: Channel
-            ) -> List[Tuple[str, User]]:
-        masks: List[Tuple[str, User]] = []
-        for nickname in channel.users:
-            if not self.is_me(nickname):
-                user  = self.users[nickname]
-                masks.append((user.hostmask(), user))
-                if (CONFIG.accban is not None and
-                        user.account is not None):
-                    accban = CONFIG.accban.format(account=user.account)
-                    masks.append((accban, user))
-        return masks
+    def _channel_masks(self,
+            users:   List[User],
+            extbans: List[str]
+            ) -> Iterable[Tuple[str, User]]:
+        for user in users:
+            # XXX or is for fixing an ircstates incorrect return hint
+            yield (user.hostmask() or "", user)
+
+            vars = {
+                "account":  user.account or "",
+                "hostmask": user.hostmask(),
+                "realname": user.realname
+            }
+            for extban in extbans:
+                formatted = extban.format(**vars)
+                yield (formatted, user)
 
     async def line_read(self, line: Line):
         if line.command == RPL_WELCOME:
@@ -187,33 +189,33 @@ class Server(BaseServer):
 
         elif (line.command == "JOIN" and
                 self.is_me(line.hostmask.nickname)):
-            channel = self.casefold(line.params[0])
+            channel = self.channels[self.casefold(line.params[0])]
 
-            tracked_masks: List[Tuple[int, str]] = []
-            for ban_mask in DB.get_existing(channel, Types.BAN):
-                tracked_masks.append((Types.BAN, ban_mask))
-            for quiet_mask in DB.get_existing(channel, Types.QUIET):
-                tracked_masks.append((Types.QUIET, quiet_mask))
-            tracked_masks_set = set(f"{m[0]}-{m[1]}" for m in tracked_masks)
+            tracked_masks = DB.get_existing(channel.name_lower)
 
-            current_masks = await self._mode_list(channel, CONFIG.quiet)
-            current_masks_set = set(f"{m[0]}-{m[1]}" for m in current_masks)
+            mode_query = "b" + (CONFIG.quiet or "")
+            current_masks = list(await self._mode_list(
+                channel.name_lower, mode_query
+            ))
+
+            tracked_masks_set = set((m[0], m[1]) for m in tracked_masks)
+            current_masks_set = set((m[0], m[1]) for m in current_masks)
 
             now = int(pendulum.now("utc").timestamp())
 
             # which bans/quiets were removed while we weren't watching
             for type, mask in tracked_masks:
-                if not f"{type}-{mask}" in current_masks_set:
-                    DB.set_removed(channel, type, mask, None, now)
+                if not (type, mask) in current_masks_set:
+                    DB.set_removed(channel.name_lower, type, mask, None, now)
             # which bans/quiets were added while we weren't watching
             for type, mask, set_by, set_at in current_masks:
-                if not f"{type}-{mask}" in tracked_masks_set:
-                    DB.add(channel, type, mask, set_by, set_at)
+                if not (type, mask) in tracked_masks_set:
+                    DB.add(channel.name_lower, type, mask, set_by, set_at)
 
         elif (line.command == "MODE" and
                 line.source is not None and
                 self.has_channel(line.params[0])):
-            channel_name = self.casefold(line.params[0])
+            channel = self.channels[self.casefold(line.params[0])]
 
             args = line.params[2:]
             modes: List[Tuple[str, str]] = []
@@ -232,30 +234,36 @@ class Server(BaseServer):
 
             now = int(pendulum.now("utc").timestamp())
             maybe_enforce: List[Tuple[int, int, Glob]] = []
-            our_hostmask = f"{self.nickname}!{self.username}@{self.hostname}"
             for mode, arg in modes:
                 type = Types.BAN if mode[1] == "b" else Types.QUIET
                 # this could be a +b or a -b for an existing mask.
                 # either way, we want to expire any previous instances of it
-                DB.set_removed(channel_name, type, arg, line.source, now)
+                DB.set_removed(channel.name_lower, type, arg, line.source, now)
 
                 if mode[0] == "+":
                     # a new ban or quiet! lets track it
-                    ban_id = DB.add(channel_name, type, arg, line.source, now)
+                    ban_id = DB.add(
+                        channel.name_lower, type, arg, line.source, now
+                    )
                     await self._notify(
-                        channel_name, line.hostmask.nickname, ban_id
+                        channel.name, line.hostmask.nickname, ban_id
                     )
 
                     compiled = glob_compile(arg)
                     maybe_enforce.append((type, ban_id, compiled))
 
             # whether or not to remove people affected by new bans
+            c_enforce = CHAN_CONFIGS.get(channel.name_lower)
             if maybe_enforce and (
-                    CHAN_CONFIGS.get(channel_name).enforce or
-                    CONFIG.enforce):
-                channel = self.channels[channel_name]
+                    (c_enforce is None and CONFIG.enforce) or c_enforce):
 
-                user_masks = self._channel_masks(channel)
+                # all nicks in a channel
+                nicks = list(channel.users.keys())
+                # (except for me)
+                nicks.remove(self.nickname_lower)
+                # get all users and all their hostmasks (and extbans!)
+                users = [self.users[n] for n in nicks]
+                user_masks = self._channel_masks(users, CONFIG.extbans)
 
                 kicks:    List[Tuple[User, int]] = []
                 devoices: List[User] = []
@@ -263,36 +271,36 @@ class Server(BaseServer):
                 for user_mask, user in user_masks:
                     cuser = channel.users[user.nickname_lower]
                     for type, ban_id, compiled in maybe_enforce:
-                        if (type == Types.BAN and
-                                not cuser.modes and
-                                compiled.match(user_mask)):
-                            kicks.append((user, ban_id))
-                        elif (type == Types.QUIET and
-                                cuser.modes == ["v"]):
-                            devoices.append(user)
+                        if compiled.match(user_mask):
+                            if (type == Types.BAN and
+                                    not cuser.modes):
+                                kicks.append((user, ban_id))
+                            elif (type == Types.QUIET and
+                                    andcuser.modes == ["v"]):
+                                devoices.append(user)
 
                 if kicks or devoices:
-                    remove_op = await self._assure_op(channel)
-                    # kick the bad guys
+                    remove_op = False
+                    if CONFIG.chanserv:
+                        remove_op = await self._assure_op(channel)
+
+                    # non-status users covered by a new ban
                     for user, ban_id in kicks:
                         reason = ENFORCE_REASON.format(id=ban_id)
                         await self.send(build(
-                            "KICK", [channel_name, user.nickname, reason]
+                            "KICK", [channel.name, user.nickname, reason]
                         ))
 
+                    # +v users covered by a new quiet
                     rem_modes = ""
                     rem_args: List[str] = []
                     for user in devoices:
                         rem_modes += "v"
                         rem_args.append(user.nickname)
 
-                    if remove_op:
-                        rem_modes += "o"
-                        rem_args.append(self.nickname)
-                    if rem_modes:
-                        await self._do_modes(
-                            channel_name, False, rem_modes, rem_args
-                        )
+                    await self._remove_modes(
+                        channel, rem_modes, rem_args, remove_op
+                    )
 
         elif (line.command == "PRIVMSG" and
                 line.source is not None):
@@ -339,8 +347,8 @@ class Server(BaseServer):
                 ban_id_s, _, message = message.partition(" ")
                 ban_id = -1
                 if ban_id_s == "^" and self.is_channel(line.params[0]):
-                    channel = self.casefold(line.params[0])
-                    last_ban_id = DB.get_last(channel)
+                    channel_name = self.casefold(line.params[0])
+                    last_ban_id = DB.get_last(channel_name)
                     if last_ban_id is None:
                         # no last ban id for channel
                         raise Exception()
@@ -470,13 +478,16 @@ def _main():
     if not os.path.isdir(data):
         os.makedirs(data)
 
+    extbans_s = config.get("extbans", "")
+    extbans_l = [e.strip() for e in extbans_s.split(",")]
+    extbans = list(filter(bool, extbans_l))
     # grab db filename and list of channels to join
     bot_config = BotConfig(
         data,
-        config.get("accban", None),
         [c.strip() for c in config["channels"].split(",")],
         config.get("chanserv", "no") == "yes",
         config.get("enforce", "no") == "yes",
+        extbans,
         config.get("trigger", "!"),
         config.get("quiet", None)
     )

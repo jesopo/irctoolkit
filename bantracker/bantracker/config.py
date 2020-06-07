@@ -6,10 +6,10 @@ from typing       import Any, Dict, List, Optional
 @dataclass
 class BotConfig(object):
     data:     str
-    accban:   Optional[str]
     channels: List[str]
     chanserv: bool
     enforce:  bool
+    extbans:  List[str]
     trigger:  str
     quiet:    Optional[str]
 
@@ -20,16 +20,12 @@ def _yes_str(b: bool) -> str:
 @dataclass
 class ChannelConfig(object):
     trigger:  Optional[str]  = None
-    chanserv: Optional[bool] = None
     enforce:  Optional[bool] = None
 
     def set(self, key: str, value: str) -> Any:
         if key   == "trigger":
             self.trigger  = value
             return self.trigger
-        elif key == "chanserv":
-            self.chanserv = _yes_bool(value)
-            return self.chanserv
         elif key == "enforce":
             self.enforce  = _yes_bool(value)
             return self.enforce
@@ -41,8 +37,6 @@ class ChannelConfig(object):
             d["trigger"]  = self.trigger
         if self.enforce  is not None:
             d["enforce"]  = _yes_str(self.enforce)
-        if self.chanserv is not None:
-            d["chanserv"] = _yes_str(self.chanserv)
         return d
 
 class ChannelConfigs(object):

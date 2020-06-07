@@ -31,13 +31,13 @@ class BanDatabase(object):
             """)
 
 
-    def get_existing(self, channel: str, type: int) -> List[str]:
+    def get_existing(self, channel: str) -> List[Tuple[int, str]]:
         cursor = self._db.cursor()
         cursor.execute("""
-            SELECT mask FROM bans
-            WHERE channel=? AND type=? AND removed_at IS NULL
-        """, [channel, type])
-        return [row[0] for row in cursor.fetchall()]
+            SELECT type, mask FROM bans
+            WHERE channel=? AND removed_at IS NULL
+        """, [channel])
+        return cursor.fetchall()
 
     def get_ban(self, ban_id: int) -> Tuple[str, int, str, str, int, str]:
         cursor = self._db.cursor()
