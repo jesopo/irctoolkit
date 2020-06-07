@@ -281,7 +281,7 @@ class Server(BaseServer):
                                     not cuser.modes):
                                 kicks.append((user, ban_id))
                             elif (type == Types.QUIET and
-                                    andcuser.modes == ["v"]):
+                                    cuser.modes == ["v"]):
                                 devoices.append(user)
 
                 if kicks or devoices:
