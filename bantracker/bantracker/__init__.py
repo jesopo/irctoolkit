@@ -113,13 +113,16 @@ class Server(BaseServer):
         return masks
 
     async def _check_expires(self):
-        now = pendulum.now("utc")
-        expired = DB.get_before(now.timestamp())
+        now = int(pendulum.now("utc").timestamp())
+
+        expired = DB.expirations.find_expired(now)
         expired_groups: Dict[str, List[Tuple[int, str]]] = {}
-        for channel, type, mask in expired:
-            if not channel in expired_groups:
-                expired_groups[channel] = []
-            expired_groups[channel].append((type, mask))
+
+        for ban_id in expired:
+            channel_name, type, mask, *_ = DB.get_ban(ban_id)
+            if not channel_name in expired_groups:
+                expired_groups[channel_name] = []
+            expired_groups[channel_name].append((type, mask))
 
         for channel_name, type_masks in expired_groups.items():
             if channel_name in self.channels:
@@ -191,22 +194,22 @@ class Server(BaseServer):
                 self.is_me(line.hostmask.nickname)):
             channel = self.channels[self.casefold(line.params[0])]
 
-            tracked_masks = DB.get_existing(channel.name_lower)
+            tracked_masks = DB.get_active(channel.name_lower)
 
             mode_query = "b" + (CONFIG.quiet or "")
             current_masks = list(await self._mode_list(
                 channel.name_lower, mode_query
             ))
 
-            tracked_masks_set = set((m[0], m[1]) for m in tracked_masks)
+            tracked_masks_set = set((m[1], m[2]) for m in tracked_masks)
             current_masks_set = set((m[0], m[1]) for m in current_masks)
 
             now = int(pendulum.now("utc").timestamp())
 
             # which bans/quiets were removed while we weren't watching
-            for type, mask in tracked_masks:
+            for ban_id, type, mask in tracked_masks:
                 if not (type, mask) in current_masks_set:
-                    DB.set_removed(channel.name_lower, type, mask, None, now)
+                    DB.set_removed(ban_id, None, now)
             # which bans/quiets were added while we weren't watching
             for type, mask, set_by, set_at in current_masks:
                 if not (type, mask) in tracked_masks_set:
@@ -237,8 +240,10 @@ class Server(BaseServer):
             for mode, arg in modes:
                 type = Types.BAN if mode[1] == "b" else Types.QUIET
                 # this could be a +b or a -b for an existing mask.
-                # either way, we want to expire any previous instances of it
-                DB.set_removed(channel.name_lower, type, arg, line.source, now)
+                # either way, we want to expire previous instances of it
+                existing_ban_id = DB.find(channel.name_lower, type, arg)
+                if existing_ban_id is not None:
+                    DB.set_removed(existing_ban_id, line.source, now)
 
                 if mode[0] == "+":
                     # a new ban or quiet! lets track it
@@ -363,7 +368,7 @@ class Server(BaseServer):
                         # ban does not exist
                         raise Exception()
 
-                ban_channel, type, mask, set_by, _, _2 = DB.get_ban(ban_id)
+                ban_channel, type, mask, set_by, *_ = DB.get_ban(ban_id)
 
                 if not self._has_permission(ban_id, set_by, ban_channel, line):
                     # you do not have permission to do this
@@ -387,10 +392,10 @@ class Server(BaseServer):
 
                 outs: List[str] = []
                 if len(reason):
-                    DB.set_reason(ban_id, line.source, now, reason)
+                    DB.reasons.set(ban_id, line.source, now, reason)
                     outs.append("reason")
                 if duration > -1:
-                    DB.set_duration(ban_id, line.source, now, duration)
+                    DB.expirations.set(ban_id, line.source, now, duration)
                     outs.append("duration")
 
                 out = " and ".join(outs)
