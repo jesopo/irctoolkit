@@ -96,3 +96,13 @@ class BanDatabase(object):
         out = cursor.fetchone()
         return (out or ["0"])[0] == "1"
 
+    def find_expired(self,
+            now: int
+            ) -> List[int]:
+        cursor = self._db.execute("""
+            SELECT expirations.ban_id, max(expire_id) FROM expirations
+            INNER JOIN bans ON bans.ban_id = expirations.ban_id
+            WHERE expire < ? AND removed_at IS NULL
+            GROUP BY expirations.ban_id
+        """, [now])
+        return [r[0] for r in cursor.fetchall()]

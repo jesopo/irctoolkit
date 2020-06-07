@@ -53,13 +53,3 @@ class ExpirationsTable(object):
             ORDER BY expire_id
         """, [ban_id])
         return cursor.fetchone()
-
-    def find_expired(self,
-            now: int
-            ) -> List[int]:
-        cursor = self._db.execute("""
-            SELECT ban_id, max(expire_id) FROM expirations
-            WHERE expire < ?
-            GROUP BY ban_id
-        """, [now])
-        return [r[0] for r in cursor.fetchall()]

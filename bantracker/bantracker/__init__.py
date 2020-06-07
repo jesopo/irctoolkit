@@ -115,7 +115,7 @@ class Server(BaseServer):
     async def _check_expires(self):
         now = int(pendulum.now("utc").timestamp())
 
-        expired = DB.expirations.find_expired(now)
+        expired = DB.find_expired(now)
         expired_groups: Dict[str, List[Tuple[int, str]]] = {}
 
         for ban_id in expired:
