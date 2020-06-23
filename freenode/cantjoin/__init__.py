@@ -54,14 +54,15 @@ class Server(BaseServer):
         masks = []
 
         hostmask = self.casefold(f"{nickname}!{username}@{hostname}")
-        masks.append(hostmask)
+        masks.append(f"$m:{hostmask}")
 
         freal = self.casefold(realname)
         masks.append(f"$x:{hostmask}#{freal}")
         masks.append(f"$r:{freal}")
 
         if account is not None:
-            masks.append(self.casefold(f"$a:{account}"))
+            facc = self.casefold(account)
+            masks.append(f"$a:{facc}")
         else:
             masks.append("$~a")
         return masks
@@ -146,14 +147,20 @@ class Server(BaseServer):
                         reasons.append("cmode +r")
 
                 for mask_tree, set_by, set_at in chan_bans:
-                    mask = mask_tree[0]
-                    glob = glob_compile(self.casefold(mask))
+                    raw_mask = mask_tree[0]
+                    if raw_mask[0] == "$":
+                        prefix, sep, mask = raw_mask.partition(":")
+                        prefix += sep
+                    else:
+                        prefix = "$m:"
+                        mask = raw_mask
+
+                    mask = prefix + self.casefold(mask)
+                    glob = glob_compile(mask)
 
                     for nick_mask in nick_masks:
-                        if mask[0] == "$" and not nick_mask[0] == "$":
-                            pass
-                        elif glob.match(nick_mask):
-                            reason = f"ban on {mask}"
+                        if glob.match(nick_mask):
+                            reason = f"ban on {raw_mask}"
                             if mask_tree[1:]:
                                 reason += f" ({mask_tree[1]})"
                             reasons.append(reason)
