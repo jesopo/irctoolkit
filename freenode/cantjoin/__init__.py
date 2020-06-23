@@ -187,19 +187,17 @@ async def main(
 
     bot = Bot()
 
-    sasl_params: Optional[SASLUserPass] = None
-    if sasl:
-        account, _, password = sasl.partition(":")
-        sasl_params = SASLUserPass(account, password)
-
     params = ConnectionParams(
         nick,
         username=nick,
         realname="irctoolkit cantjoin v1",
         host    ="chat.freenode.net",
         port    =6697,
-        tls     =True,
-        sasl    =sasl_params)
+        tls     =True)
+
+    if sasl:
+        account, _, password = sasl.partition(":")
+        params.sasl = SASLUserPass(account, password)
 
     await bot.add_server("freenode", params)
     await bot.run()
