@@ -1,6 +1,6 @@
 import asyncio
 
-from typing import List, Optional, Tuple
+from typing import List, Optional, Set, Tuple
 
 from irctokens import build, Line
 from ircrobots import Bot as BaseBot
@@ -182,6 +182,50 @@ class Server(BaseServer):
                     await self.send(build("NOTICE", [sender, out]))
                 else:
                     await self.send(build("NOTICE", [sender, "idk"]))
+            elif command == "DUPES":
+                if not len(argv) > 0:
+                    await self.send(build(
+                        "NOTICE", [sender, "not enough params"]
+                    ))
+                    return
+
+                chan      = argv[0]
+                chan_bans = await self._ban_list(chan)
+                if chan_bans is None:
+                    await self.send(build(
+                        "NOTICE", [sender, f"channel {chan} not found"]
+                    ))
+                    return
+
+                seen:       Set[str] = set()
+                duplicates: List[List[str]] = []
+                for mask_tree, set_by, set_at in chan_bans:
+                    raw_mask = mask_tree[0]
+                    mask     = self._fold_mask(raw_mask)
+
+                    if mask in seen:
+                        duplicates.append(mask_tree)
+                    else:
+                        seen.add(mask)
+
+                if duplicates:
+                    outs: List[str] = [f"duplicates on {chan}: "]
+                    for mask_tree in duplicates:
+                        out = f"{mask_tree[0]} ({mask_tree[1]}), "
+                        if (len(outs[-1])+len(out)) > 400:
+                            outs[-1] = outs[-1][:-1]
+                            outs.append(out)
+                        else:
+                            outs[-1] = outs[-1] + out
+                    outs[-1] = outs[-1][:-2]
+
+                    for out in outs:
+                        await self.send(build("NOTICE", [sender, out]))
+                else:
+                    await self.send(build(
+                        "NOTICE", [sender, f"no duplicates found for {chan}"]
+                    ))
+                    return
 
     async def line_send(self, line: Line):
         print(f"> {line.format()}")
