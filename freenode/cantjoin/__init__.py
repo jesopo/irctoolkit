@@ -16,18 +16,20 @@ class Server(BaseServer):
     async def _ban_list(self,
             chan: str,
             depth=0
-            ) -> List[Tuple[(List[str], str, int)]]:
+            ) -> Optional[List[Tuple[(List[str], str, int)]]]:
 
         await self.send(build("MODE", [chan, "+b"]))
 
         masks = []
         while True:
             line = await self.wait_for(Responses(
-                [RPL_BANLIST, RPL_ENDOFBANLIST],
+                [RPL_BANLIST, RPL_ENDOFBANLIST, ERR_NOSUCHCHANNEL],
                 [SELF, Folded(chan)]
             ))
 
-            if line.command == RPL_ENDOFBANLIST:
+            if line.command == ERR_NOSUCHCHANNEL:
+                return None
+            elif line.command == RPL_ENDOFBANLIST:
                 break
             else:
                 mask   = line.params[2]
@@ -38,10 +40,11 @@ class Server(BaseServer):
         if depth == 0:
             for (mask,), _, _ in list(masks):
                 if mask.startswith("$j:"):
-                    nextchan = mask.split(":", 1)[1]
+                    nextchan = mask.split(":", 1)[1].split("$", 1)[0]
                     nextchan_masks = await self._ban_list(nextchan, depth + 1)
-                    for nextmask, set_by, set_at in nextchan_masks:
-                        masks.append((nextmask + [mask], set_by, set_at))
+                    if nextchan_masks is not None:
+                        for nextmask, set_by, set_at in nextchan_masks:
+                            masks.append((nextmask + [mask], set_by, set_at))
 
         return masks
 
@@ -135,6 +138,11 @@ class Server(BaseServer):
 
                 chan      = argv[1]
                 chan_bans = await self._ban_list(chan)
+                if chan_bans is None:
+                    await self.send(build(
+                        "NOTICE", [sender, f"channel {chan} not found"]
+                    ))
+                    return
 
                 cased_nick, user, host, real, acc = nick_info
                 nick_masks = self._masks(nick, user, host, real, acc)
