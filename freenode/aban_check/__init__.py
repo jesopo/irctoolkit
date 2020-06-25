@@ -1,8 +1,6 @@
-import asyncio, sys
+import sys
 
 from typing   import Any, Dict, List, Optional, Tuple
-from argparse import ArgumentParser
-
 import yaml
 
 from irctokens import build, Line
@@ -120,22 +118,16 @@ class Bot(BaseBot):
     def create_server(self, name: str):
         return Server(self, name)
 
-async def main():
+async def main(nick: str, chan: str, file: str):
+    global NICK
+    NICK = nick
+    global CHAN
+    CHAN = chan
+    global FILE
+    FILE = file
+
     bot = Bot()
     params = ConnectionParams(NICK, "chat.freenode.net", 6697, True)
     server = await bot.add_server("freenode", params)
     await bot.run()
 
-if __name__ == "__main__":
-    parser = ArgumentParser(
-        description="Find expired/deleted/etc accounts on freenode banlist")
-    parser.add_argument("nickname")
-    parser.add_argument("channel")
-    parser.add_argument("outfile")
-    args = parser.parse_args()
-
-    NICK = args.nickname
-    CHAN = args.channel
-    FILE = args.outfile
-
-    asyncio.run(main())

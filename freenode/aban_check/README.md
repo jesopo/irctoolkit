@@ -5,7 +5,7 @@
 > $ pip3 install ircrobots pyyaml
 
 ## usage
-> $ ./aban_check.py mybotnick "#mychan" out.yaml
+> $ ./python3 -m aban_check mybotnick "#mychan" out.yaml
 
 ## behaviour
 
