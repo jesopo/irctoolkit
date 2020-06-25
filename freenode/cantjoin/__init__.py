@@ -110,6 +110,15 @@ class Server(BaseServer):
 
         return None
 
+    def _fold_mask(self, mask: str) -> str:
+        if mask[0] == "$":
+            prefix, sep, mask = mask.partition(":")
+            prefix += sep
+        else:
+            prefix = "$m:"
+
+        return prefix + self.casefold(mask)
+
     async def line_read(self, line: Line):
         print(f"< {line.format()}")
 
@@ -156,14 +165,8 @@ class Server(BaseServer):
 
                 for mask_tree, set_by, set_at in chan_bans:
                     raw_mask = mask_tree[0]
-                    if raw_mask[0] == "$":
-                        prefix, sep, mask = raw_mask.partition(":")
-                        prefix += sep
-                    else:
-                        prefix = "$m:"
-                        mask = raw_mask
+                    mask     = self._fold_mask(raw_mask)
 
-                    mask = prefix + self.casefold(mask)
                     glob = glob_compile(mask)
 
                     for nick_mask in nick_masks:
