@@ -20,7 +20,7 @@ class Server(BaseServer):
 
         await self.send(build("MODE", [chan, "+b"]))
 
-        masks = []
+        masks: List[Tuple[List[str], str, int]] = []
         while True:
             line = await self.wait_for(Responses(
                 [RPL_BANLIST, RPL_ENDOFBANLIST, ERR_NOSUCHCHANNEL],
@@ -44,7 +44,7 @@ class Server(BaseServer):
                     nextchan_masks = await self._ban_list(nextchan, depth + 1)
                     if nextchan_masks is not None:
                         for nextmask, set_by, set_at in nextchan_masks:
-                            masks.append((nextmask + [mask], set_by, set_at))
+                            masks.append((nextmask+[mask], set_by, set_at))
 
         return masks
 
