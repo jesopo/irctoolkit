@@ -1,5 +1,6 @@
 import asyncio
 
+from enum import IntEnum
 from typing import List, Optional, Set, Tuple
 
 from irctokens import build, Line
@@ -12,39 +13,56 @@ from ircrobots.matching import Responses, SELF, Folded
 
 from ircrobots.glob import compile as glob_compile
 
+class Type(IntEnum):
+    BAN   = 1
+    QUIET = 2
+
 class Server(BaseServer):
     async def _ban_list(self,
-            chan: str,
+            chan:  str,
+            modes: str,
             depth=0
-            ) -> Optional[List[Tuple[(List[str], str, int)]]]:
+            ) -> Optional[List[Tuple[Type, List[str], str, int]]]:
 
-        await self.send(build("MODE", [chan, "+b"]))
+        await self.send(build("MODE", [chan, f"+{modes}"]))
 
-        masks: List[Tuple[List[str], str, int]] = []
+        ends = len(modes)
+        masks: List[Tuple[Type, List[str], str, int]] = []
         while True:
-            line = await self.wait_for(Responses(
-                [RPL_BANLIST, RPL_ENDOFBANLIST, ERR_NOSUCHCHANNEL],
-                [SELF, Folded(chan)]
-            ))
+            line = await self.wait_for(Responses([
+                RPL_BANLIST, RPL_QUIETLIST,
+                RPL_ENDOFBANLIST, RPL_ENDOFQUIETLIST, ERR_NOSUCHCHANNEL
+            ], [SELF, Folded(chan)]))
 
             if line.command == ERR_NOSUCHCHANNEL:
                 return None
-            elif line.command == RPL_ENDOFBANLIST:
-                break
+            elif line.command in [RPL_ENDOFBANLIST, RPL_ENDOFQUIETLIST]:
+                ends -= 1
+                if ends == 0:
+                    break
             else:
-                mask   = line.params[2]
-                set_by = line.params[3]
-                set_at = int(line.params[4])
-                masks.append(([mask], set_by, set_at))
+                offset = 0
+                type = Type.BAN
+                if line.command == RPL_QUIETLIST:
+                    offset += 1
+                    type = Type.QUIET
+                mask   = line.params[offset+2]
+                set_by = line.params[offset+3]
+                set_at = int(line.params[offset+4])
+                masks.append((type, [mask], set_by, set_at))
 
         if depth == 0:
-            for (mask,), _, _ in list(masks):
+            for type, (mask,), _, _ in list(masks):
                 if mask.startswith("$j:"):
                     nextchan = mask.split(":", 1)[1].split("$", 1)[0]
-                    nextchan_masks = await self._ban_list(nextchan, depth + 1)
+                    nextchan_masks = await self._ban_list(
+                        nextchan, "b", depth + 1
+                    )
                     if nextchan_masks is not None:
-                        for nextmask, set_by, set_at in nextchan_masks:
-                            masks.append((nextmask+[mask], set_by, set_at))
+                        for _, nextmask, set_by, set_at in nextchan_masks:
+                            masks.append(
+                                (type, nextmask+[mask], set_by, set_at)
+                            )
 
         return masks
 
@@ -146,7 +164,7 @@ class Server(BaseServer):
                     return
 
                 chan      = argv[1]
-                chan_bans = await self._ban_list(chan)
+                chan_bans = await self._ban_list(chan, "b")
                 if chan_bans is None:
                     await self.send(build(
                         "NOTICE", [sender, f"channel {chan} not found"]
@@ -163,7 +181,7 @@ class Server(BaseServer):
                     if "r" in cmodes and acc is None:
                         reasons.append("cmode +r")
 
-                for mask_tree, set_by, set_at in chan_bans:
+                for _, mask_tree, set_by, set_at in chan_bans:
                     raw_mask = mask_tree[0]
                     mask     = self._fold_mask(raw_mask)
 
@@ -189,29 +207,38 @@ class Server(BaseServer):
                     ))
                     return
 
+                query     = "bq"
                 chan      = argv[0]
-                chan_bans = await self._ban_list(chan)
+                chan_bans = await self._ban_list(chan, query)
                 if chan_bans is None:
                     await self.send(build(
                         "NOTICE", [sender, f"channel {chan} not found"]
                     ))
                     return
 
-                seen:       Set[str] = set()
-                duplicates: List[List[str]] = []
-                for mask_tree, set_by, set_at in chan_bans:
+                seen:       Set[Tuple[Type, str]] = set()
+                duplicates: List[Tuple[Type, List[str]]] = []
+                for type, mask_tree, set_by, set_at in chan_bans:
                     raw_mask = mask_tree[0]
                     mask     = self._fold_mask(raw_mask)
 
-                    if mask in seen:
-                        duplicates.append(mask_tree)
+                    key = (type, mask)
+                    if key in seen:
+                        duplicates.append((type, mask_tree))
                     else:
-                        seen.add(mask)
+                        seen.add(key)
 
                 if duplicates:
                     outs: List[str] = [f"duplicates on {chan}: "]
-                    for mask_tree in duplicates:
-                        out = f"{mask_tree[0]} ({mask_tree[1]}), "
+                    for type, mask_tree in duplicates:
+                        mode = ""
+                        if len(query) > 1:
+                            if type == Type.QUIET:
+                                mode = "+q "
+                            else:
+                                mode = "+b "
+
+                        out = f"{mode}{mask_tree[0]} ({mask_tree[1]}), "
                         if (len(outs[-1])+len(out)) > 400:
                             outs[-1] = outs[-1][:-1]
                             outs.append(out)
