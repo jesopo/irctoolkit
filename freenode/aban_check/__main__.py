@@ -7,10 +7,13 @@ if __name__ == '__main__':
     parser.add_argument("nickname")
     parser.add_argument("channel")
     parser.add_argument("outfile")
+    parser.add_argument("--non-existent", "-n", action="store_true")
     args = parser.parse_args()
 
-    nick = args.nickname
-    chan = args.channel
-    file = args.outfile
-
-    asyncio.run(main(nick, chan, file))
+    print(args.non_existent)
+    asyncio.run(main(
+        args.nickname,
+        args.channel,
+        args.outfile,
+        args.non_existent
+    ))

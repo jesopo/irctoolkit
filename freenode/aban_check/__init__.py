@@ -1,6 +1,5 @@
 import sys
-
-from typing   import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import yaml
 
 from irctokens import build, Line
@@ -15,6 +14,7 @@ from ircrobots.matching import (Response, Responses, ANY, SELF, Folded, Regex,
 NICK = ""
 CHAN = ""
 FILE = ""
+NONEXISTENT_ONLY = False
 
 NICKSERV = Nick("NickServ")
 RESP_REG   = Response("NOTICE", [SELF, Regex("^Information on ")],
@@ -62,8 +62,6 @@ class Server(BaseServer):
 
     async def line_read(self, line: Line):
         if line.command == "001":
-            await self.send(build("MODE", [CHAN, "+b"]))
-
             chan_bans = await self._ban_list(CHAN)
             if chan_bans is None:
                 sys.stderr.write(f"{CHAN} not found\n")
@@ -73,37 +71,46 @@ class Server(BaseServer):
             for mask_tree, set_by, set_at in chan_bans:
                 mask = mask_tree[0]
                 if mask.startswith("$a:"):
-                    account = mask.split(":", 1)[1].split("$", 1)[0]
-                    account = self.casefold(account)
-                    if not account in accounts:
-                        accounts[account] = []
+                    if not mask in accounts:
+                        accounts[mask] = []
 
-                    accounts[account].append((mask_tree[1:] or [CHAN])[0])
+                    accounts[mask].append((mask_tree[1:] or [CHAN])[0])
 
-            states: Dict[str, bool] = {}
-            for account in accounts.keys():
+            states: List[Tuple[str, bool]] = []
+            for mask in accounts.keys():
+                account = mask.split(":", 1)[1].split("$", 1)[0]
+                account = self.casefold(account)
+
                 await self.send(build("NS", ["INFO", account]))
                 line = await self.wait_for({
                     RESP_REG, RESP_UNREG
                 })
 
                 if line.params[1].startswith("Information on "):
-                    states[account] = True
+                    if not NONEXISTENT_ONLY:
+                        states.append((mask, True))
                     await self.wait_for(RESP_END)
                 else:
-                    states[account] = False
+                    states.append((mask, False))
 
             states_where: Dict[str, Any] = {}
-            for account in sorted(accounts.keys()):
-                state = {
-                    "registered": states[account],
-                    "sources":    accounts[account]
-                }
-                states_where[account] = state
+            for mask, registered in states:
+                state: Dict[Any, Any] = {}
+
+                sources = accounts[mask]
+                if len(sources) == 1:
+                    state["source"] = sources[0]
+                else:
+                    state["source"] = sources
+
+                if not NONEXISTENT_ONLY:
+                    state["registered"] = registered
+
+                states_where[mask] = state
 
             with open(FILE, "w") as outfile:
                 outfile.write(
-                    yaml.dump(states_where)
+                    yaml.dump(states_where, sort_keys=False)
                 )
                 outfile.write("\n")
             print(f"! written to {FILE}")
@@ -118,13 +125,20 @@ class Bot(BaseBot):
     def create_server(self, name: str):
         return Server(self, name)
 
-async def main(nick: str, chan: str, file: str):
+async def main(
+        nick: str,
+        chan: str,
+        file: str,
+        nonexistent_only: bool):
     global NICK
     NICK = nick
     global CHAN
     CHAN = chan
     global FILE
     FILE = file
+
+    global NONEXISTENT_ONLY
+    NONEXISTENT_ONLY = nonexistent_only
 
     bot = Bot()
     params = ConnectionParams(NICK, "chat.freenode.net", 6697, True)
