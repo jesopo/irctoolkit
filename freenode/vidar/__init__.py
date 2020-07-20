@@ -204,13 +204,16 @@ class Server(BaseServer):
                             print("it does not exist!!")
                     elif subcommand == "comment":
                         if existing is not None:
-                            existing_mask = self._database.get(mask_id)
+                            existing_mask = self._database.get(existing)
                             self._database.set_comment(existing, comment)
 
                             if comment is not None:
                                 out = f"set comment for {existing_mask}"
                             else:
                                 out = f"removed comment for {existing_mask}"
+                            await self.send(build(
+                                reply_method, [reply_target, out]
+                            ))
                         else:
                             print("it does not exist!!")
 
