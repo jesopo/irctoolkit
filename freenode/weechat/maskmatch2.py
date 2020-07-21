@@ -92,23 +92,23 @@ def _user_masks(server, channel):
 
         masks = []
         hostmask = f"{name}!{host}"
-        masks.append(hostmask)
-        masks.append(f"$x:{hostmask}#{real}")
-        masks.append(f"$r:{real}")
+        masks.append((False, hostmask))
+        masks.append((True,  f"$x:{hostmask}#{real}"))
+        masks.append((True,  f"$r:{real}"))
 
         if acc:
-            masks.append(f"$a:{acc}")
+            masks.append((True, f"$a:{acc}"))
 
         out[name] = masks
     w.infolist_free(infolist)
 
     return out
 
-def _match(match_mask, user_masks):
+def _match(extban, match_mask, user_masks):
     affected = []
     for nick, masks in user_masks.items():
-        for mask in masks:
-            if ((not match_mask[0] == "$" or mask[0] == "$") and
+        for mask_extban, mask in masks:
+            if ((not extban or mask_extban) and
                     _glob_match(match_mask, mask)):
                 affected.append(nick)
                 break
@@ -121,8 +121,9 @@ def _print_matches(target, mode_tokens, user_masks):
 
     for add, mode, arg in mode_tokens:
         if arg is not None:
+            extban    = ":" in arg
             collapsed = _glob_collapse(arg)
-            affected = _match(collapsed, user_masks)
+            affected  = _match(extban, collapsed, user_masks)
             for nick in affected:
                 ncolor = w.color(w.info_get("irc_nick_color_name", nick))
                 w.prnt(target, f"{prefix} {arg} matches {ncolor}{nick}{reset}")
