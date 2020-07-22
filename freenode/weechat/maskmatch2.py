@@ -73,7 +73,7 @@ RFC1459_LOWER = ASCII_LOWER+list("{}^|")
 def _fold_rfc1459(s):
     return _multi_replace(s, RFC1459_UPPER, RFC1459_LOWER)
 def _fold_ascii(s):
-    return _mutli_replace(s, ASCII_UPPER, ASCII_LOWER)
+    return _multi_replace(s, ASCII_UPPER, ASCII_LOWER)
 
 def _fold(casemap, s):
     if casemap == "rfc1459":
