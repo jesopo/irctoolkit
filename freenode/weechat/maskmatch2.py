@@ -60,8 +60,8 @@ def _glob_match(pattern, s):
 
 def _mode_tokens(modes, args, prefix, chanmodes):
     mode_a, mode_b, mode_c, mode_d = chanmodes
-    arg_add    = prefix+mode_a+mode_b+mode_c
-    arg_remove = prefix+mode_a+mode_b
+    arg_add    = mode_a+mode_b+mode_c
+    arg_remove = mode_a+mode_b
 
     add = True
     out = []
@@ -70,6 +70,8 @@ def _mode_tokens(modes, args, prefix, chanmodes):
         arg = None
         if char in "+-":
             add = char == "+"
+        elif char in prefix:
+            args.pop(0)
         else:
             if add:
                 if char in arg_add:
