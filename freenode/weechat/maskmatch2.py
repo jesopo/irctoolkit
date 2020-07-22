@@ -59,7 +59,7 @@ def _glob_match(pattern, s):
     return i == len(pattern)
 
 def _mode_tokens(modes, args, prefix, chanmodes):
-    mode_a, mode_b, mode_c, mode_d = chanmodes.split(",", 3)
+    mode_a, mode_b, mode_c, mode_d = chanmodes
     arg_add    = prefix+mode_a+mode_b+mode_c
     arg_remove = prefix+mode_a+mode_b
 
@@ -81,7 +81,7 @@ def _mode_tokens(modes, args, prefix, chanmodes):
     return out
 
 def _user_masks(server, channel):
-    infolist = w.infolist_get("irc_nick", "", "{},{}".format(server, channel))
+    infolist = w.infolist_get("irc_nick", "", f"{server},{channel}")
 
     out =  {}
     while w.infolist_next(infolist):
@@ -128,28 +128,50 @@ def _print_matches(target, mode_tokens, user_masks):
                 ncolor = w.color(w.info_get("irc_nick_color_name", nick))
                 w.prnt(target, f"{prefix} {arg} matches {ncolor}{nick}{reset}")
 
+def _is_whitelisted(server, target):
+    whitelist   = w.config_get_plugin("whitelist")
+    whitelist_l = [w.strip() for w in whitelist.split(",")]
+    whitelist_l = list(filter(bool, whitelist_l))
+
+    return (server in whitelist_l or
+        target in whitelist_l)
+
 def on_channel_mode(data, signal, signal_data):
     server = signal.split(",")[0]
-    parsed = w.info_get_hashtable("irc_message_parse", {"message": signal_data})
+    parsed = w.info_get_hashtable(
+        "irc_message_parse", {"message": signal_data}
+    )
     chan   = parsed["channel"]
     target = w.buffer_search("irc", f"{server}.{chan}")
 
-    modes  = parsed["text"]
-    args   = []
-    if " " in modes:
-        modes, _, args = modes.partition(" ")
-        args = list(filter(bool, args.split(" ")))
+    if _is_whitelisted(server, target):
+        modes  = parsed["text"]
+        args   = []
+        if " " in modes:
+            modes, _, args = modes.partition(" ")
+            args = list(filter(bool, args.split(" ")))
 
-    prefix    = w.info_get("irc_server_isupport_value", f"{server},PREFIX")
-    prefix    = prefix.split(")", 1)[0][1:]
-    chanmodes = w.info_get("irc_server_isupport_value", f"{server},CHANMODES")
+        prefix    = w.info_get(
+            "irc_server_isupport_value", f"{server},PREFIX"
+        ).split(")", 1)[0][1:]
+        chanmodes = w.info_get(
+            "irc_server_isupport_value", f"{server},CHANMODES"
+        ).split(",", 3)
 
-    mode_tokens = _mode_tokens(modes, args, prefix, chanmodes)
-    user_masks  = _user_masks(server, chan)
+        mode_tokens = _mode_tokens(modes, args, prefix, chanmodes)
+        user_masks  = _user_masks(server, chan)
 
-    _print_matches(target, mode_tokens, user_masks)
+        _print_matches(target, mode_tokens, user_masks)
 
     return w.WEECHAT_RC_OK
 
+SETTINGS = {
+    "whitelist": ["", "CSV servers and buffer names to enable mask matching on"]
+}
+
 if import_ok and w.register(SCRIPT_NAME, SCRIPT_AUTHOR, SCRIPT_VERSION, SCRIPT_LICENSE, SCRIPT_DESC, "", ""):
+    for name, (default, description) in SETTINGS.items():
+        if not w.config_is_set_plugin(name):
+            w.config_set_plugin(name, default)
+            w.config_set_desc_plugin(name, description)
     w.hook_signal("*,irc_in_MODE", "on_channel_mode", "")
