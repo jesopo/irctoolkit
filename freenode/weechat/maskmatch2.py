@@ -132,14 +132,14 @@ def _user_masks(server, channel, casemap):
 
     return out
 
-def _unique_masks(mode_tokens, casemap):
+def _unique_masks(casemap, masks):
     seen         = set([])
     unique_masks = []
-    for add, mode, mode_arg in mode_tokens:
+    for orig_mask in masks:
         extban = False
-        if ":" in mode_arg:
+        if ":" in orig_mask:
             extban = True
-            prefix, sep, mask = mode_arg.partition(":")
+            prefix, sep, mask = orig_mask.partition(":")
             mask = prefix + sep + _fold(casemap, mask)
         else:
             mask = _fold(casemap, arg)
@@ -147,8 +147,13 @@ def _unique_masks(mode_tokens, casemap):
 
         if not mask in seen:
             seen.add(mask)
-            unique_masks.append((extban, mask))
+            unique_masks.append((extban, mask, orig_mask))
     return unique_masks
+def _unique_mode_masks(casemap, mode_tokens):
+    masks = []
+    for add, mode, mode_arg in mode_tokens:
+        masks.append(mode_arg)
+    return _unique_masks(casemap, masks)
 
 def _match_one(extban, mask, users_masks):
     affected = []
@@ -163,16 +168,21 @@ def _match_one(extban, mask, users_masks):
 
 def _match_many(masks, users_masks):
     matches = []
-    for extban, mask in masks:
+    for extban, mask, orig_mask in masks:
         affected = _match_one(extban, mask, users_masks)
         for nickname in affected:
-            matches.append((mask, nickname))
+            matches.append((orig_mask, nickname))
     return matches
 
-def _print_matches(target, matches):
+def _print_matches(from_mode, target, matches):
     pcolor = w.color("green")
     reset  = w.color("reset")
-    prefix = f"[{pcolor}maskmatch{reset}]"
+
+    prefix = "maskmatch"
+    if not from_mode:
+        prefix = f"/{prefix}"
+    prefix = f"[{pcolor}{prefix}{reset}]"
+
     for mask, nickname in matches:
         ncolor = w.color(w.info_get("irc_nick_color_name", nickname))
         w.prnt(target, f"{prefix} {mask} matches {ncolor}{nickname}{reset}")
@@ -185,13 +195,30 @@ def _is_whitelisted(server, target):
     return (server in whitelist_l or
         target in whitelist_l)
 
+def _get_casemap(server):
+    return w.info_get(
+        "irc_server_isupport_value",
+        f"{server},CASEMAPPING"
+    ) or "rfc1459"
+
+def _match_for_buffer(
+        from_mode,
+        casemap,
+        target,
+        server,
+        channel,
+        unique_masks):
+    users_masks  = _user_masks(server, channel, casemap)
+    matches      = _match_many(unique_masks, users_masks)
+    _print_matches(from_mode, target, matches)
+
 def on_channel_mode(data, signal, signal_data):
-    server = signal.split(",")[0]
-    parsed = w.info_get_hashtable(
+    server  = signal.split(",")[0]
+    parsed  = w.info_get_hashtable(
         "irc_message_parse", {"message": signal_data}
     )
-    chan   = parsed["channel"]
-    target = w.buffer_search("irc", f"{server}.{chan}")
+    channel = parsed["channel"]
+    target  = w.buffer_search("irc", f"{server}.{channel}")
 
     if _is_whitelisted(server, target):
         modes  = parsed["text"]
@@ -200,9 +227,7 @@ def on_channel_mode(data, signal, signal_data):
             modes, _, args = modes.partition(" ")
             args = list(filter(bool, args.split(" ")))
 
-        casemap = w.info_get(
-            "irc_server_isupport_value", f"{server},CASEMAPPING"
-        ) or "rfc1459"
+        casemap = _get_casemap(server)
 
         prefix = w.info_get(
             "irc_server_isupport_value", f"{server},PREFIX"
@@ -213,10 +238,29 @@ def on_channel_mode(data, signal, signal_data):
         ).split(",", 3)
 
         mode_tokens  = _mode_tokens(modes, args, prefix, chanmodes)
-        unique_masks = _unique_masks(mode_tokens, casemap)
-        users_masks  = _user_masks(server, chan, casemap)
-        matches      = _match_many(unique_masks, users_masks)
-        _print_matches(target, matches)
+        unique_masks = _unique_mode_masks(casemap, mode_tokens)
+        _match_for_buffer(
+            True, casemap, target, server, channel, unique_masks
+        )
+
+    return w.WEECHAT_RC_OK
+
+def on_command(data, buffer, args):
+    try:
+        server, channel = w.buffer_get_string(buffer, "name").split(".", 1)
+        is_channel = True
+    except ValueError:
+        w.prnt(buffer, "error: Active buffer does not appear to be a channel.")
+        return w.WEECHAT_RC_ERROR
+
+    target = w.buffer_search("irc", f"{server}.{channel}")
+    masks  = list(filter(bool, args.split(" ")))
+    if masks:
+        casemap = _get_casemap(server)
+        unique_masks = _unique_masks(casemap, masks)
+        _match_for_buffer(
+            False, casemap, target, server, channel, unique_masks
+        )
 
     return w.WEECHAT_RC_OK
 
@@ -229,4 +273,6 @@ if import_ok and w.register(SCRIPT_NAME, SCRIPT_AUTHOR, SCRIPT_VERSION, SCRIPT_L
         if not w.config_is_set_plugin(name):
             w.config_set_plugin(name, default)
             w.config_set_desc_plugin(name, description)
+
     w.hook_signal("*,irc_in_MODE", "on_channel_mode", "")
+    w.hook_command("mm2", "maskmatch2", "", "", "", "on_command", "")
