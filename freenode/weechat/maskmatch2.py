@@ -132,44 +132,50 @@ def _user_masks(server, channel, casemap):
 
     return out
 
-def _match(extban, match_mask, user_masks):
+def _unique_masks(mode_tokens, casemap):
+    seen         = set([])
+    unique_masks = []
+    for add, mode, mode_arg in mode_tokens:
+        extban = False
+        if ":" in mode_arg:
+            extban = True
+            prefix, sep, mask = mode_arg.partition(":")
+            mask = prefix + sep + _fold(casemap, mask)
+        else:
+            mask = _fold(casemap, arg)
+        mask = _glob_collapse(mask)
+
+        if not mask in seen:
+            seen.add(mask)
+            unique_masks.append((extban, mask))
+    return unique_masks
+
+def _match_one(extban, mask, users_masks):
     affected = []
-    for nick in sorted(user_masks.keys()):
-        masks = user_masks[nick]
-        for mask_extban, mask in masks:
-            if ((not extban or mask_extban) and
-                    _glob_match(match_mask, mask)):
-                affected.append(nick)
+    for nickname in sorted(users_masks.keys()):
+        user_masks = users_masks[nickname]
+        for user_extban, user_mask in user_masks:
+            if ((not extban or user_extban) and
+                    _glob_match(mask, user_mask)):
+                affected.append(nickname)
                 break
     return affected
 
-def _print_matches(target, mode_tokens, user_masks, casemap):
+def _match_many(masks, users_masks):
+    matches = []
+    for extban, mask in masks:
+        affected = _match_one(extban, mask, users_masks)
+        for nickname in affected:
+            matches.append((mask, nickname))
+    return matches
+
+def _print_matches(target, matches):
     pcolor = w.color("green")
     reset  = w.color("reset")
     prefix = f"[{pcolor}maskmatch{reset}]"
-    seen   = set([])
-
-    for add, mode, arg in mode_tokens:
-        if arg is not None:
-            extban = False
-            if ":" in arg:
-                extban = True
-                arg_fold, sep, mask = arg.partition(":")
-                arg_fold += sep + _fold(casemap, mask)
-            else:
-                arg_fold = _fold(casemap, arg)
-
-            if not arg_fold in seen:
-                seen.add(arg_fold)
-
-                collapsed = _glob_collapse(arg_fold)
-                affected  = _match(extban, collapsed, user_masks)
-                for nick in affected:
-                    ncolor = w.color(w.info_get("irc_nick_color_name", nick))
-                    w.prnt(
-                        target,
-                        f"{prefix} {arg} matches {ncolor}{nick}{reset}"
-                    )
+    for mask, nickname in matches:
+        ncolor = w.color(w.info_get("irc_nick_color_name", nickname))
+        w.prnt(target, f"{prefix} {mask} matches {ncolor}{nickname}{reset}")
 
 def _is_whitelisted(server, target):
     whitelist   = w.config_get_plugin("whitelist")
@@ -206,10 +212,11 @@ def on_channel_mode(data, signal, signal_data):
             "irc_server_isupport_value", f"{server},CHANMODES"
         ).split(",", 3)
 
-        mode_tokens = _mode_tokens(modes, args, prefix, chanmodes)
-        user_masks  = _user_masks(server, chan, casemap)
-
-        _print_matches(target, mode_tokens, user_masks, casemap)
+        mode_tokens  = _mode_tokens(modes, args, prefix, chanmodes)
+        unique_masks = _unique_masks(mode_tokens, casemap)
+        users_masks  = _user_masks(server, chan, casemap)
+        matches      = _match_many(unique_masks, users_masks)
+        _print_matches(target, matches)
 
     return w.WEECHAT_RC_OK
 
