@@ -142,7 +142,7 @@ def _unique_masks(casemap, masks):
             prefix, sep, mask = orig_mask.partition(":")
             mask = prefix + sep + _fold(casemap, mask)
         else:
-            mask = _fold(casemap, arg)
+            mask = _fold(casemap, orig_mask)
         mask = _glob_collapse(mask)
 
         if not mask in seen:
