@@ -246,13 +246,12 @@ def on_channel_mode(data, signal, signal_data):
     return w.WEECHAT_RC_OK
 
 def on_command(data, buffer, args):
-    try:
-        server, channel = w.buffer_get_string(buffer, "name").split(".", 1)
-        is_channel = True
-    except ValueError:
+    channel = w.buffer_get_string(buffer, 'localvar_channel')
+    if not w.info_get("irc_is_channel", channel):
         w.prnt(buffer, "error: Active buffer does not appear to be a channel.")
         return w.WEECHAT_RC_ERROR
 
+    server = w.buffer_get_string(buffer, 'localvar_server')
     target = w.buffer_search("irc", f"{server}.{channel}")
     masks  = list(filter(bool, args.split(" ")))
     if masks:
