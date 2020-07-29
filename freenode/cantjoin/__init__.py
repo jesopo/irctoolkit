@@ -72,20 +72,21 @@ class Server(BaseServer):
             hostname: str,
             realname: str,
             account: Optional[str]):
-        masks = []
+        masks: List[Tuple[bool, str]] = []
 
         hostmask = self.casefold(f"{nickname}!{username}@{hostname}")
-        masks.append(f"$m:{hostmask}")
+        masks.append((False, hostmask))
 
         freal = self.casefold(realname)
-        masks.append(f"$x:{hostmask}#{freal}")
-        masks.append(f"$r:{freal}")
+        masks.append((True, f"$x:{hostmask}#{freal}"))
+        masks.append((True, f"$r:{freal}"))
 
         if account is not None:
             facc = self.casefold(account)
-            masks.append(f"$a:{facc}")
+            masks.append((True, f"$a:{facc}"))
+            masks.append((True, "$a"))
         else:
-            masks.append("$~a")
+            masks.append((True, "$~a"))
         return masks
 
     async def _find_user(self, nick: str
@@ -128,14 +129,18 @@ class Server(BaseServer):
 
         return None
 
-    def _fold_mask(self, mask: str) -> str:
-        if mask[0] == "$":
-            prefix, sep, mask = mask.partition(":")
-            prefix += sep
+    def _prepare_mask(self, mask: str) -> Tuple[bool, str]:
+        if ":" in mask:
+            ext, sep, mask = mask.partition(":")
         else:
-            prefix = "$m:"
+            ext = ""
+            sep = ""
 
-        return prefix + self.casefold(mask)
+        if "$" in mask:
+            # cut off banforward
+            mask = mask.split("$", 1)[0]
+
+        return bool(sep), ext + sep + self.casefold(mask)
 
     async def line_read(self, line: Line):
         print(f"< {line.format()}")
@@ -172,7 +177,7 @@ class Server(BaseServer):
                     return
 
                 cased_nick, user, host, real, acc = nick_info
-                nick_masks = self._masks(nick, user, host, real, acc)
+                user_masks = self._masks(nick, user, host, real, acc)
 
                 reasons = []
 
@@ -182,13 +187,14 @@ class Server(BaseServer):
                         reasons.append("cmode +r")
 
                 for _, mask_tree, set_by, set_at in chan_bans:
-                    raw_mask = mask_tree[0]
-                    mask     = self._fold_mask(raw_mask)
+                    raw_mask          = mask_tree[0]
+                    chan_extban, mask = self._prepare_mask(raw_mask)
 
                     glob = glob_compile(mask)
 
-                    for nick_mask in nick_masks:
-                        if glob.match(nick_mask):
+                    for user_extban, user_mask in user_masks:
+                        if (chan_extban == user_extban and
+                                glob.match(user_mask)):
                             reason = f"ban on {raw_mask}"
                             if mask_tree[1:]:
                                 reason += f" ({mask_tree[1]})"
@@ -219,8 +225,8 @@ class Server(BaseServer):
                 seen:       Set[Tuple[Type, str]] = set()
                 duplicates: List[Tuple[Type, List[str]]] = []
                 for type, mask_tree, set_by, set_at in chan_bans:
-                    raw_mask = mask_tree[0]
-                    mask     = self._fold_mask(raw_mask)
+                    raw_mask     = mask_tree[0]
+                    extban, mask = self._prepare_mask(raw_mask)
 
                     key = (type, mask)
                     if key in seen:
