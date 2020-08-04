@@ -105,6 +105,9 @@ async def main(
     await bot.add_server("server", params)
     await bot.run()
 
+def _strip_list(lst: List[str]) -> List[str]:
+    return list(filter(bool, [l.strip() for l in lst]))
+
 if __name__ == "__main__":
     parser = ArgumentParser(
         description="Catch VPN users by :443 TLS certificate common-name")
@@ -118,9 +121,9 @@ if __name__ == "__main__":
     nickname  = config["bot"]["nickname"]
     sasl_user = config["bot"]["sasl-username"]
     sasl_pass = config["bot"]["sasl-password"]
-    chans     = config["bot"]["chans"].split(",")
-    bad       = config["bot"]["bad"].split(",")
-    actions   = config["bot"]["actions"].split(";")
+    chans     = _strip_list(config["bot"]["chans"].split(","))
+    bad       = _strip_list(config["bot"]["bad"].split(","))
+    actions   = _strip_list(config["bot"]["actions"].split(";"))
 
     asyncio.run(main(
         hostname,
