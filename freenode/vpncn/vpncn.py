@@ -1,4 +1,4 @@
-import asyncio, re, ssl
+import asyncio, re, ssl, traceback
 from argparse     import ArgumentParser
 from configparser import ConfigParser
 from typing       import List, Tuple
@@ -13,6 +13,7 @@ from ircrobots import Bot as BaseBot
 from ircrobots import Server as BaseServer
 from ircrobots import ConnectionParams, SASLUserPass
 
+ACC:     bool = True
 CHANS:   List[str] = []
 BAD:     List[str] = []
 ACTIONS: List[str] = []
@@ -65,23 +66,24 @@ class Server(BaseServer):
         elif (line.command == "JOIN" and
                 not self.is_me(line.hostmask.nickname)):
             user = self.users[self.casefold(line.hostmask.nickname)]
-            fingerprint = f"{line.hostmask.hostname}#{user.realname}"
+            if not ACC or not user.account:
+                fingerprint = f"{line.hostmask.hostname}#{user.realname}"
+                for pattern, mask in PATTERNS:
+                    match = re.search(pattern, fingerprint)
+                    if match:
+                        ip     = match.group("ip")
+                        mask_f = mask.format(IP=ip)
 
-            for pattern, mask in PATTERNS:
-                match = re.search(pattern, fingerprint)
-                if match:
-                    ip     = match.group("ip")
-                    mask_f = mask.format(IP=ip)
-
-                    try:
-                        async with timeout_(4):
-                            common_name = await _common_name(ip, 443)
-                    except TimeoutError:
-                        print("timeout")
-                        pass
-                    else:
-                        if common_name in BAD:
-                            await self._act(line, mask_f, ip, common_name)
+                        try:
+                            async with timeout_(4):
+                                common_name = await _common_name(ip, 443)
+                        except TimeoutError:
+                            print("timeout")
+                        except Exception as e:
+                            traceback.print_exc()
+                        else:
+                            if common_name in BAD:
+                                await self._act(line, mask_f, ip, common_name)
 
     async def line_send(self, line: Line):
         print(f"{self.name} > {line.format()}")
@@ -95,10 +97,12 @@ async def main(
         nickname:  str,
         sasl_user: str,
         sasl_pass: str,
+        acc_grace: bool,
         chans:     List[str],
         bad:       List[str],
         actions:   List[str]):
-    global CHANS, BAD, ACTIONS
+    global ACC, CHANS, BAD, ACTIONS
+    ACC     = acc_grace
     CHANS   = chans
     BAD     = bad
     ACTIONS = actions
@@ -126,6 +130,7 @@ if __name__ == "__main__":
     nickname  = config["bot"]["nickname"]
     sasl_user = config["bot"]["sasl-username"]
     sasl_pass = config["bot"]["sasl-password"]
+    acc_grace = config["bot"]["account-grace"] == "on"
     chans     = _strip_list(config["bot"]["chans"].split(","))
     bad       = _strip_list(config["bot"]["bad"].split(","))
     actions   = _strip_list(config["bot"]["actions"].split(";"))
@@ -135,6 +140,7 @@ if __name__ == "__main__":
         nickname,
         sasl_user,
         sasl_pass,
+        acc_grace,
         chans,
         bad,
         actions
