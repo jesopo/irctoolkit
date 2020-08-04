@@ -1,0 +1,8 @@
+[bot]
+hostname  = chat.freenode.net
+nickname  = myrobot
+chans     = ##mychannel
+bad       = *.badvpn.com
+actions   = MODE {CHAN} +q {MASK};NOTICE ##mychannel-ops :caught {NICK} in {CHAN} for {CN}
+sasl-username = myaccount
+sasl-password = hunter2
