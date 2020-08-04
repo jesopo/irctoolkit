@@ -19,7 +19,9 @@ ACTIONS: List[str] = []
 
 PATTERNS: List[Tuple[str, str, str]] = [
     # match @[...]/ip.[...]
-    (r"^.+/ip\.(?P<ip>[^/]+)$", "*!*@*/ip.{IP}")
+    (r"^.+/ip\.(?P<ip>[^/]+)#.*$", "*!*@*/ip.{IP}"),
+    # match #https://webchat.freenode.net
+    (r"^(?P<ip>[^/]+)#https://webchat.freenode.net$", "*!*@{IP}")
 ]
 
 TLS = ssl.SSLContext(ssl.PROTOCOL_TLS)
@@ -62,8 +64,11 @@ class Server(BaseServer):
             await self.send(build("JOIN", [",".join(CHANS)]))
         elif (line.command == "JOIN" and
                 not self.is_me(line.hostmask.nickname)):
+            user = self.users[self.casefold(line.hostmask.nickname)]
+            fingerprint = f"{line.hostmask.hostname}#{user.realname}"
+
             for pattern, mask in PATTERNS:
-                match = re.search(pattern, line.hostmask.hostname)
+                match = re.search(pattern, fingerprint)
                 if match:
                     ip     = match.group("ip")
                     mask_f = mask.format(IP=ip)
