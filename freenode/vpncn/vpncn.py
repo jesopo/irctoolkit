@@ -59,7 +59,7 @@ class Server(BaseServer):
     async def line_read(self, line: Line):
         print(f"{self.name} < {line.format()}")
         if   line.command == "001":
-            await self.send(build("JOIN", CHANS))
+            await self.send(build("JOIN", [",".join(CHANS)]))
         elif (line.command == "JOIN" and
                 not self.is_me(line.hostmask.nickname)):
             for pattern, mask in PATTERNS:
