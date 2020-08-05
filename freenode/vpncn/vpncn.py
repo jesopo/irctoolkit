@@ -1,7 +1,7 @@
 import asyncio, re, ssl, traceback
 from argparse     import ArgumentParser
 from configparser import ConfigParser
-from typing       import List, Tuple
+from typing       import Dict, List, Tuple
 
 from cryptography import x509
 from cryptography.x509.oid import NameOID
@@ -15,7 +15,7 @@ from ircrobots import ConnectionParams, SASLUserPass
 
 ACC:     bool = True
 CHANS:   List[str] = []
-BAD:     List[str] = []
+BAD:     Dict[str, str] = {}
 ACTIONS: List[str] = []
 
 PATTERNS: List[Tuple[str, str, str]] = [
@@ -30,7 +30,7 @@ TLS.options |= ssl.OP_NO_SSLv2
 TLS.options |= ssl.OP_NO_SSLv3
 TLS.load_default_certs()
 
-async def _common_name(ip: str, port: int) -> str:
+async def _cert_values(ip: str, port: int) -> Dict[str, str]:
     reader, writer = await asyncio.open_connection(ip, port, ssl=TLS)
     der_cert = writer.transport._ssl_protocol._sslpipe.ssl_object.getpeercert(True)
     writer.close()
@@ -38,8 +38,15 @@ async def _common_name(ip: str, port: int) -> str:
 
     pem_cert = ssl.DER_cert_to_PEM_cert(der_cert).encode("ascii")
     cert     = x509.load_pem_x509_certificate(pem_cert, default_backend())
-    cns      = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
-    return cns[0].value
+
+    values: Dict[str, str] = {}
+    cns = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
+    if cns:
+        values["cn"] = cns[0].value
+    ons = cert.subject.get_attributes_for_oid(NameOID.ORGANIZATION_NAME)
+    if ons:
+        values["on"] = ons[0].value
+    return values
 
 class Server(BaseServer):
     async def _act(self,
@@ -76,14 +83,16 @@ class Server(BaseServer):
 
                         try:
                             async with timeout_(4):
-                                common_name = await _common_name(ip, 443)
+                                values = await _cert_values(ip, 443)
                         except TimeoutError:
                             print("timeout")
                         except Exception as e:
                             traceback.print_exc()
                         else:
-                            if common_name in BAD:
-                                await self._act(line, mask_f, ip, common_name)
+                            for key, value in values.items():
+                                kv = f"{key}:{value}".lower().strip()
+                                if kv in BAD:
+                                    await self._act(line, mask_f, ip, kv)
 
     async def line_send(self, line: Line):
         print(f"{self.name} > {line.format()}")
@@ -104,8 +113,9 @@ async def main(
     global ACC, CHANS, BAD, ACTIONS
     ACC     = acc_grace
     CHANS   = chans
-    BAD     = bad
     ACTIONS = actions
+    for bad_item in bad:
+        BAD[bad_item.lower()] = bad_item
 
     bot = Bot()
     params = ConnectionParams(nickname, hostname, 6697, True)
