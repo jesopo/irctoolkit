@@ -2,7 +2,7 @@
 hostname  = chat.freenode.net
 nickname  = myrobot
 chans     = ##mychannel
-bad       = *.badvpn.com
+bad       = cn:*.badvpn.com
 actions   = MODE {CHAN} +q {MASK};NOTICE ##mychannel-ops :caught {NICK} in {CHAN} for {CN}
 account-grace = on
 sasl-username = myaccount
