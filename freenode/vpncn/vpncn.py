@@ -4,7 +4,6 @@ from configparser import ConfigParser
 from typing       import Dict, List, Tuple
 
 from cryptography import x509
-from cryptography.x509.oid import NameOID
 from cryptography.hazmat.backends import default_backend
 from async_timeout import timeout as timeout_
 
@@ -18,7 +17,7 @@ CHANS:   List[str] = []
 BAD:     Dict[str, str] = {}
 ACTIONS: List[str] = []
 
-PATTERNS: List[Tuple[str, str, str]] = [
+PATTERNS: List[Tuple[str, str]] = [
     # match @[...]/ip.[...]
     (r"^.+/ip\.(?P<ip>[^/]+)#.*$", "*!*@*/ip.{IP}"),
     # match #https://webchat.freenode.net
@@ -40,10 +39,10 @@ async def _cert_values(ip: str, port: int) -> Dict[str, str]:
     cert     = x509.load_pem_x509_certificate(pem_cert, default_backend())
 
     values: Dict[str, str] = {}
-    cns = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
+    cns = cert.subject.get_attributes_for_oid(x509.oid.NameOID.COMMON_NAME)
     if cns:
         values["cn"] = cns[0].value
-    ons = cert.subject.get_attributes_for_oid(NameOID.ORGANIZATION_NAME)
+    ons = cert.subject.get_attributes_for_oid(x509.oid.NameOID.ORGANIZATION_NAME)
     if ons:
         values["on"] = ons[0].value
     return values
