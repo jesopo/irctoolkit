@@ -5,6 +5,7 @@ chans     = ##mychannel
 bad       = cn:*.badvpn.com
 act-soft  = NOTICE ##mychannel-ops :caught {NICK} in {CHAN} for {CN}
 act-hard  = MODE {CHAN} +q {MASK}
+admins    = user@host,user2@host2
 account-grace = on
 sasl-username = myaccount
 sasl-password = hunter2
