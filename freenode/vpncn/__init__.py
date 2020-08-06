@@ -13,6 +13,7 @@ from irctokens import build, Line
 from ircrobots import Bot as BaseBot
 from ircrobots import Server as BaseServer
 from ircrobots import ConnectionParams, SASLUserPass
+from ircrobots.glob import compile as glob_compile, Glob
 
 from .dnsbl import DNSBLS
 
@@ -21,6 +22,7 @@ CHANS:    List[str] = []
 BAD:      Dict[str, str] = {}
 ACT_SOFT: List[str] = []
 ACT_HARD: List[str] = []
+ADMINS:   List[Glob] = []
 
 PATTERNS: List[Tuple[str, str]] = [
     # match @[...]/ip.[...]
@@ -127,6 +129,13 @@ class Server(BaseServer):
                         await self._act(ACT_SOFT, line, mask_f, ip, reason)
                         if not ACC or not user.account:
                             await self._act(ACT_HARD, line, mask_f, ip, reason)
+        elif (line.command == "INVITE" and
+                self.is_me(line.params[0])):
+            userhost = f"{line.hostmask.username}@{line.hostmask.hostname}"
+            for admin_mask in ADMINS:
+                if admin_mask.match(userhost):
+                    await self.send(build("JOIN", [line.params[1]]))
+                    break
 
     async def line_send(self, line: Line):
         print(f"{self.name} > {line.format()}")
@@ -142,12 +151,14 @@ async def main(
         sasl_pass: str,
         acc_grace: bool,
         chans:     List[str],
+        admins:    List[str],
         bad:       List[str],
         act_soft:  List[str],
         act_hard:  List[str]):
     global ACC, CHANS, BAD, ACT_SOFT, ACT_HARD
     ACC      = acc_grace
     CHANS    = chans
+    ADMINS   = [glob_compile(a) for a in admins]
     ACT_SOFT = act_soft
     ACT_HARD = act_hard
 
@@ -179,6 +190,7 @@ def init():
     sasl_pass = config["bot"]["sasl-password"]
     acc_grace = config["bot"]["account-grace"] == "on"
     chans     = _strip_list(config["bot"]["chans"].split(","))
+    admins    = _strip_list(config["bot"]["admins"].split(","))
     bad       = _strip_list(config["bot"]["bad"].split(","))
     act_soft  = _strip_list(config["bot"]["act-soft"].split(";"))
     act_hard  = _strip_list(config["bot"]["act-hard"].split(";"))
@@ -190,6 +202,7 @@ def init():
         sasl_pass,
         acc_grace,
         chans,
+        admins,
         bad,
         act_soft,
         act_hard
