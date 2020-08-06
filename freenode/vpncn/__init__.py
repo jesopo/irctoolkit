@@ -72,7 +72,7 @@ async def _dnsbl_match(ip: str) -> Optional[str]:
     resolver, _ = Resolver()
 
     for dnsbl in DNSBLS:
-        domain = f"{ip_rev}@{dnsbl.hostname}"
+        domain = f"{ip_rev}.{dnsbl.hostname}"
         try:
             results = await resolver(domain, TYPES.A)
         except DnsRecordDoesNotExist:
