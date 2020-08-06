@@ -1,21 +1,26 @@
 import asyncio, re, ssl, traceback
 from argparse     import ArgumentParser
 from configparser import ConfigParser
-from typing       import Dict, List, Tuple
+from typing       import Dict, List, Optional, Tuple
 
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
-from async_timeout import timeout as timeout_
+
+from async_timeout  import timeout as timeout_
+from aiodnsresolver import DnsRecordDoesNotExist, Resolver, TYPES
 
 from irctokens import build, Line
 from ircrobots import Bot as BaseBot
 from ircrobots import Server as BaseServer
 from ircrobots import ConnectionParams, SASLUserPass
 
-ACC:     bool = True
-CHANS:   List[str] = []
-BAD:     Dict[str, str] = {}
-ACTIONS: List[str] = []
+from .dnsbl import DNSBLS
+
+ACC:      bool = True
+CHANS:    List[str] = []
+BAD:      Dict[str, str] = {}
+ACT_SOFT: List[str] = []
+ACT_HARD: List[str] = []
 
 PATTERNS: List[Tuple[str, str]] = [
     # match @[...]/ip.[...]
@@ -47,21 +52,59 @@ async def _cert_values(ip: str, port: int) -> Dict[str, str]:
         values["on"] = ons[0].value
     return values
 
+async def _cert_match(ip: str) -> Optional[str]:
+    try:
+        async with timeout_(4):
+            values = await _cert_values(ip, 443)
+    except TimeoutError:
+        print("timeout")
+    except Exception as e:
+        traceback.print_exc()
+    else:
+        for key, value in values.items():
+            kv = f"{key}:{value}".lower().strip()
+            if kv in BAD:
+                return kv
+    return None
+
+async def _dnsbl_match(ip: str) -> Optional[str]:
+    ip_rev = ".".join(reversed(ip.split(".")))
+    resolver, _ = Resolver()
+
+    for dnsbl in DNSBLS:
+        domain = f"{ip_rev}@{dnsbl.hostname}"
+        try:
+            results = await resolver(domain, TYPES.A)
+        except DnsRecordDoesNotExist:
+            pass
+        else:
+            for result in results:
+                reason = dnsbl.reason(result.exploded)
+                return f"dnsbl:{dnsbl.hostname}:{reason}"
+    return None
+
+async def _match(ip: str) -> Optional[str]:
+    reason =           await _cert_match(ip)
+    reason = reason or await _dnsbl_match(ip)
+
+    return reason
+
 class Server(BaseServer):
     async def _act(self,
-            line: Line,
-            mask: str,
-            ip:   str,
-            cn:   str):
+            acts:   List[str],
+            line:   Line,
+            mask:   str,
+            ip:     str,
+            reason: str):
         data = {
-            "CHAN": line.params[0],
-            "NICK": line.hostmask.nickname,
-            "MASK": mask,
-            "IP":   ip,
-            "CN":   cn
+            "CHAN":   line.params[0],
+            "NICK":   line.hostmask.nickname,
+            "MASK":   mask,
+            "IP":     ip,
+            "REASON": reason
         }
 
-        for action in ACTIONS:
+        for action in acts:
             action_f = action.format(**data)
             await self.send_raw(action_f)
 
@@ -72,26 +115,18 @@ class Server(BaseServer):
         elif (line.command == "JOIN" and
                 not self.is_me(line.hostmask.nickname)):
             user = self.users[self.casefold(line.hostmask.nickname)]
-            if not ACC or not user.account:
-                fingerprint = f"{line.hostmask.hostname}#{user.realname}"
-                for pattern, mask in PATTERNS:
-                    match = re.search(pattern, fingerprint)
-                    if match:
-                        ip     = match.group("ip")
-                        mask_f = mask.format(IP=ip)
+            fingerprint = f"{line.hostmask.hostname}#{user.realname}"
+            for pattern, mask in PATTERNS:
+                match = re.search(pattern, fingerprint)
+                if match:
+                    ip     = match.group("ip")
+                    mask_f = mask.format(IP=ip)
 
-                        try:
-                            async with timeout_(4):
-                                values = await _cert_values(ip, 443)
-                        except TimeoutError:
-                            print("timeout")
-                        except Exception as e:
-                            traceback.print_exc()
-                        else:
-                            for key, value in values.items():
-                                kv = f"{key}:{value}".lower().strip()
-                                if kv in BAD:
-                                    await self._act(line, mask_f, ip, kv)
+                    reason = await _match(ip)
+                    if reason is not None:
+                        await self._act(ACT_SOFT, line, mask_f, ip, reason)
+                        if not ACC or not user.account:
+                            await self._act(ACT_HARD, line, mask_f, ip, reason)
 
     async def line_send(self, line: Line):
         print(f"{self.name} > {line.format()}")
@@ -108,11 +143,14 @@ async def main(
         acc_grace: bool,
         chans:     List[str],
         bad:       List[str],
-        actions:   List[str]):
-    global ACC, CHANS, BAD, ACTIONS
-    ACC     = acc_grace
-    CHANS   = chans
-    ACTIONS = actions
+        act_soft:  List[str],
+        act_hard:  List[str]):
+    global ACC, CHANS, BAD, ACT_SOFT, ACT_HARD
+    ACC      = acc_grace
+    CHANS    = chans
+    ACT_SOFT = act_soft
+    ACT_HARD = act_hard
+
     for bad_item in bad:
         BAD[bad_item.lower()] = bad_item
 
@@ -126,7 +164,7 @@ async def main(
 def _strip_list(lst: List[str]) -> List[str]:
     return list(filter(bool, [l.strip() for l in lst]))
 
-if __name__ == "__main__":
+def init():
     parser = ArgumentParser(
         description="Catch VPN users by :443 TLS certificate common-name")
     parser.add_argument("config")
@@ -142,7 +180,8 @@ if __name__ == "__main__":
     acc_grace = config["bot"]["account-grace"] == "on"
     chans     = _strip_list(config["bot"]["chans"].split(","))
     bad       = _strip_list(config["bot"]["bad"].split(","))
-    actions   = _strip_list(config["bot"]["actions"].split(";"))
+    act_soft  = _strip_list(config["bot"]["act-soft"].split(";"))
+    act_hard  = _strip_list(config["bot"]["act-hard"].split(";"))
 
     asyncio.run(main(
         hostname,
@@ -152,5 +191,6 @@ if __name__ == "__main__":
         acc_grace,
         chans,
         bad,
-        actions
+        act_soft,
+        act_hard
     ))
