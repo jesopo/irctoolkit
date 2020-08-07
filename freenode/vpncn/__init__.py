@@ -101,6 +101,8 @@ class Server(BaseServer):
         data = {
             "CHAN":   line.params[0],
             "NICK":   line.hostmask.nickname,
+            "USER":   line.hostmask.username,
+            "HOST":   line.hostmask.hostname,
             "MASK":   mask,
             "IP":     ip,
             "REASON": reason
