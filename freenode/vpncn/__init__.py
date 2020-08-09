@@ -60,7 +60,7 @@ async def _cert_match(ip: str) -> Optional[str]:
     try:
         async with timeout_(4):
             values = await _cert_values(ip, 443)
-    except TimeoutError:
+    except asyncio.TimeoutError:
         print("timeout")
     except Exception as e:
         traceback.print_exc()
@@ -108,8 +108,8 @@ class Server(BaseServer):
                     "MODE",
                     [Folded(channel.name), "+o", SELF],
                     source=CHANSERV,
-                ), wtimeout=5)
-            except TimeoutError:
+                ), timeout=5)
+            except asyncio.TimeoutError:
                 return False
             else:
                 return True
