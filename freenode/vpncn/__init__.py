@@ -140,8 +140,8 @@ class Server(BaseServer):
             if remove_op:
                 last_act = tokenise(acts[-1])
                 if (last_act.command == "MODE" and
-                        self.casefold_equals(chan_name, chan.name_lower) and
-                        len(last_act.params[1:]) < self.isupport.modes):
+                        self.casefold_equals(chan_name, last_act.params[0]) and
+                        len(last_act.params[2:]) < self.isupport.modes):
                     last_act.params[1] += "-o"
                     last_act.params.append(self.nickname)
                     acts[-1] = last_act.format()
