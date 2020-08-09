@@ -9,11 +9,13 @@ from cryptography.hazmat.backends import default_backend
 from async_timeout  import timeout as timeout_
 from aiodnsresolver import DnsRecordDoesNotExist, Resolver, TYPES
 
-from irctokens import build, Line
+from irctokens import build, Line, tokenise
+from ircstates import Channel
 from ircrobots import Bot as BaseBot
 from ircrobots import Server as BaseServer
 from ircrobots import ConnectionParams, SASLUserPass
-from ircrobots.glob import compile as glob_compile, Glob
+from ircrobots.glob     import compile as glob_compile, Glob
+from ircrobots.matching import Folded, Nick, Response, SELF
 
 from .dnsbl import DNSBLS
 
@@ -91,9 +93,31 @@ async def _match(ip: str) -> Optional[str]:
 
     return reason
 
+CHANSERV = Nick("ChanServ")
+
 class Server(BaseServer):
+    async def _assure_op(self, channel: Channel) -> bool:
+        channel_self = channel.users[self.nickname_lower]
+        if not "o" in channel_self.modes:
+            await self.send(build(
+                "PRIVMSG", ["ChanServ", f"OP {channel.name}"]
+            ))
+
+            try:
+                await self.wait_for(Response(
+                    "MODE",
+                    [Folded(channel.name), "+o", SELF],
+                    source=CHANSERV,
+                ), wtimeout=5)
+            except TimeoutError:
+                return False
+            else:
+                return True
+        else:
+            return False
+
     async def _act(self,
-            acts:   List[str],
+            hard:   bool,
             line:   Line,
             mask:   str,
             ip:     str,
@@ -107,6 +131,22 @@ class Server(BaseServer):
             "IP":     ip,
             "REASON": reason
         }
+        acts = list(ACT_HARD if hard else ACT_SOFT)
+
+        if hard:
+            chan_name = self.casefold(line.params[0])
+            chan      = self.channels[chan_name]
+            remove_op = await self._assure_op(chan)
+            if remove_op:
+                last_act = tokenise(acts[-1])
+                if (last_act.command == "MODE" and
+                        self.casefold_equals(chan_name, chan.name_lower) and
+                        len(last_act.params[1:]) < self.isupport.modes):
+                    last_act.params[1] += "-o"
+                    last_act.params.append(self.nickname)
+                    acts[-1] = last_act.format()
+                else:
+                    acts.append(f"MODE {chan.name} -o {self.nickname}")
 
         for action in acts:
             action_f = action.format(**data)
@@ -120,17 +160,28 @@ class Server(BaseServer):
                 not self.is_me(line.hostmask.nickname)):
             user = self.users[self.casefold(line.hostmask.nickname)]
             fingerprint = f"{line.hostmask.hostname}#{user.realname}"
-            for pattern, mask in PATTERNS:
+            for pattern, mask_templ in PATTERNS:
                 match = re.search(pattern, fingerprint)
                 if match:
-                    ip     = match.group("ip")
-                    mask_f = mask.format(IP=ip)
+                    chan = self.channels[self.casefold(line.params[0])]
+                    ip   = match.group("ip")
+                    mask = mask_templ.format(IP=ip)
 
-                    reason = await _match(ip)
-                    if reason is not None:
-                        await self._act(ACT_SOFT, line, mask_f, ip, reason)
-                        if not ACC or not user.account:
-                            await self._act(ACT_HARD, line, mask_f, ip, reason)
+                    list_modes = (chan.list_modes.get("b", [])+
+                        chan.list_modes.get("q", []))
+                    if not mask in list_modes:
+                        reason = await _match(ip)
+                        if reason is not None:
+                            await self._act(False, line, mask, ip, reason)
+                            if not ACC or not user.account:
+                                await self._act(True, line, mask, ip, reason)
+                    else:
+                        print("already caught")
+
+        elif (line.command == "JOIN" and
+                self.is_me(line.hostmask.nickname)):
+            await self.send(build("MODE", [line.params[0], "+bq"]))
+
         elif (line.command == "INVITE" and
                 self.is_me(line.params[0])):
             userhost = f"{line.hostmask.username}@{line.hostmask.hostname}"
