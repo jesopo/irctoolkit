@@ -22,6 +22,7 @@ from .dnsbl import DNSBLS
 ACC:      bool = True
 CHANS:    List[str] = []
 BAD:      Dict[str, str] = {}
+PORTS:    List[int] = []
 ACT_SOFT: List[str] = []
 ACT_HARD: List[str] = []
 ADMINS:   List[Glob] = []
@@ -56,10 +57,10 @@ async def _cert_values(ip: str, port: int) -> Dict[str, str]:
         values["on"] = ons[0].value
     return values
 
-async def _cert_match(ip: str) -> Optional[str]:
+async def _cert_match(ip: str, port: int) -> Optional[str]:
     try:
         async with timeout_(4):
-            values = await _cert_values(ip, 443)
+            values = await _cert_values(ip, port)
     except asyncio.TimeoutError:
         print("timeout")
     except Exception as e:
@@ -88,7 +89,8 @@ async def _dnsbl_match(ip: str) -> Optional[str]:
     return None
 
 async def _match(ip: str) -> Optional[str]:
-    reason =           await _cert_match(ip)
+    for port in PORTS:
+        reason =       await _cert_match(ip, port)
     reason = reason or await _dnsbl_match(ip)
 
     return reason
@@ -206,15 +208,17 @@ async def main(
         chans:     List[str],
         admins:    List[str],
         bad:       List[str],
+        ports:     List[str],
         act_soft:  List[str],
         act_hard:  List[str]):
-    global ACC, CHANS, BAD, ACT_SOFT, ACT_HARD
+    global ACC, CHANS, BAD, PORTS, ACT_SOFT, ACT_HARD
     ACC      = acc_grace
     CHANS    = chans
     ADMINS   = [glob_compile(a) for a in admins]
     ACT_SOFT = act_soft
     ACT_HARD = act_hard
 
+    PORTS = [int(p) for p in ports]
     for bad_item in bad:
         BAD[bad_item.lower()] = bad_item
 
@@ -245,6 +249,7 @@ def init():
     chans     = _strip_list(config["bot"]["chans"].split(","))
     admins    = _strip_list(config["bot"]["admins"].split(","))
     bad       = _strip_list(config["bot"]["bad"].split(","))
+    ports     = _strip_list(config["bot"]["ports"].split(","))
     act_soft  = _strip_list(config["bot"]["act-soft"].split(";"))
     act_hard  = _strip_list(config["bot"]["act-hard"].split(";"))
 
@@ -257,6 +262,7 @@ def init():
         chans,
         admins,
         bad,
+        ports,
         act_soft,
         act_hard
     ))
