@@ -75,8 +75,8 @@ def on_command(data, buffer, sargs):
     pieces[2] = args[0]
     if args[1:]:
         pieces[5] = args[1]
-    if args[2:]:
-        pieces[5] = (pieces[5] or "") + f"|{args[2]}"
+        if args[2:]:
+            pieces[5] += f"|{args[2]}"
 
     pieces = list(filter(bool, pieces))
     if " " in pieces[-1] or pieces[-1].startswith(":"):
@@ -94,4 +94,15 @@ def on_command(data, buffer, sargs):
     return w.WEECHAT_RC_OK
 
 if import_ok and w.register(SCRIPT_NAME, SCRIPT_AUTHOR, SCRIPT_VERSION, SCRIPT_LICENSE, SCRIPT_DESC, "", ""):
-    w.hook_command("hkline", "human kline", "", "", "", "on_command", "")
+    w.hook_command(
+        "hkline",
+        "human-friendly klines",
+        "<user>@<host> [\"<reason>\" [\"<oper reason>\"]] [+<time>] [--target|-t <server>]",
+        (
+            "server: the server on which to set the k-line\n"
+            "  time: a compact duration preprended with a +, e.g. +1w2d"
+        ),
+        "",
+        "on_command",
+        ""
+    )
