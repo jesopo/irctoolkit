@@ -21,7 +21,7 @@ from .dnsbl import DNSBLS
 
 ACC:      bool = True
 CHANS:    List[str] = []
-BAD:      Dict[str, str] = {}
+BAD:      List[Tuple[Pattern, str]] = []
 PORTS:    List[int] = []
 ACT_SOFT: List[str] = []
 ACT_HARD: List[str] = []
@@ -57,7 +57,7 @@ async def _cert_values(ip: str, port: int) -> Dict[str, str]:
         values["on"] = ons[0].value
     return values
 
-async def _cert_match(ip: str, port: int) -> Optional[str]:
+async def _cert_match(ip: str, port: int) -> List[str]:
     try:
         async with timeout_(4):
             values = await _cert_values(ip, port)
@@ -66,10 +66,19 @@ async def _cert_match(ip: str, port: int) -> Optional[str]:
     except Exception as e:
         traceback.print_exc()
     else:
-        for key, value in values.items():
-            kv = f"{key}:{value}".lower().strip()
-            if kv in BAD:
-                return kv
+        return [f"{k}:{v}" for k, v in values.items()]
+    return []
+async def _cert_matches(ip: str, ports: List[int]) -> Optional[str]:
+    all_values: List[str] = []
+    for port in ports:
+        values = await _cert_match(ip, port)
+        if values is not None:
+            all_values.extend(values)
+    for pattern, raw in BAD:
+        for value in all_values:
+            print(raw, value)
+            if pattern.fullmatch(value):
+                return f"{raw} ({value})"
     return None
 
 async def _dnsbl_match(ip: str) -> Optional[str]:
@@ -89,8 +98,7 @@ async def _dnsbl_match(ip: str) -> Optional[str]:
     return None
 
 async def _match(ip: str) -> Optional[str]:
-    for port in PORTS:
-        reason =       await _cert_match(ip, port)
+    reason =           await _cert_matches(ip, PORTS)
     reason = reason or await _dnsbl_match(ip)
 
     return reason
@@ -220,7 +228,7 @@ async def main(
 
     PORTS = [int(p) for p in ports]
     for bad_item in bad:
-        BAD[bad_item.lower()] = bad_item
+        BAD.append((re.compile(bad_item, re.I),  bad_item))
 
     bot = Bot()
     params = ConnectionParams(nickname, hostname, 6697, True)

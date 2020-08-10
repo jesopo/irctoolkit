@@ -10,4 +10,4 @@ sasl-username = myaccount
 sasl-password = hunter2
 
 ports = 443
-bad   = cn:*.badvpn.com
+bad   = cn:\*\.badvpn\.com
