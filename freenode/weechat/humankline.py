@@ -94,5 +94,4 @@ def on_command(data, buffer, sargs):
     return w.WEECHAT_RC_OK
 
 if import_ok and w.register(SCRIPT_NAME, SCRIPT_AUTHOR, SCRIPT_VERSION, SCRIPT_LICENSE, SCRIPT_DESC, "", ""):
-    w.hook_signal("*,irc_in_MODE", "on_channel_mode", "")
     w.hook_command("hkline", "human kline", "", "", "", "on_command", "")
