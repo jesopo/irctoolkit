@@ -20,16 +20,17 @@ MINUTES_DAY  = MINUTES_HOUR*24
 MINUTES_WEEK = MINUTES_DAY *7
 
 def from_pretty_time(pretty_time):
-    minutes = 0
+    minutes = -1
 
     match = re.match(REGEX_PRETTYTIME, pretty_time)
     if match:
+        minutes = 0
         minutes += int(match.group(1) or 0)*MINUTES_WEEK
         minutes += int(match.group(2) or 0)*MINUTES_DAY
         minutes += int(match.group(3) or 0)*MINUTES_HOUR
         minutes += int(match.group(4) or 0)
 
-    if minutes >= 0:
+    if minutes > -1:
         return minutes
     return None
 
@@ -52,14 +53,11 @@ def on_command(data, buffer, sargs):
         arg = args[i]
         if arg.startswith("+"):
             args.pop(i)
-            arg_d = arg[1:]
-            if not arg_d:
-                duration = 0
+            duration = from_pretty_time(arg[1:])
+            if duration is not None:
+                pieces[1] = str(duration)
             else:
-                duration = from_pretty_time(arg_d)
-                if duration is None:
-                    raise ValueError("incorrect kline duration")
-            pieces[1] = str(duration)
+                raise ValueError("incorrect kline duration")
         elif arg in ["-t", "--target"]:
             args.pop(i)
             if args[i:]:
