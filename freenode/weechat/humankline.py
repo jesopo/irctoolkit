@@ -20,17 +20,17 @@ MINUTES_DAY  = MINUTES_HOUR*24
 MINUTES_WEEK = MINUTES_DAY *7
 
 def from_pretty_time(pretty_time):
-    seconds = 0
+    minutes = 0
 
     match = re.match(REGEX_PRETTYTIME, pretty_time)
     if match:
-        seconds += int(match.group(1) or 0)*MINUTES_WEEK
-        seconds += int(match.group(2) or 0)*MINUTES_DAY
-        seconds += int(match.group(3) or 0)*MINUTES_HOUR
-        seconds += int(match.group(4) or 0)
+        minutes += int(match.group(1) or 0)*MINUTES_WEEK
+        minutes += int(match.group(2) or 0)*MINUTES_DAY
+        minutes += int(match.group(3) or 0)*MINUTES_HOUR
+        minutes += int(match.group(4) or 0)
 
-    if seconds >= 0:
-        return seconds
+    if minutes >= 0:
+        return minutes
     return None
 
 def on_command(data, buffer, sargs):
