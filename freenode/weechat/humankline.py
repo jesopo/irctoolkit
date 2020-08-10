@@ -15,32 +15,32 @@ SCRIPT_DESC    = "a less irritating interface to charybdis klines"
 
 REGEX_PRETTYTIME = re.compile(
     r"(?:(\d+)w)?(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)m)?", re.I)
-SECONDS_MINUTES = 60
-SECONDS_HOURS   = SECONDS_MINUTES*60
-SECONDS_DAYS    = SECONDS_HOURS*24
-SECONDS_WEEKS   = SECONDS_DAYS*7
+MINUTES_HOUR = 60
+MINUTES_DAY  = MINUTES_HOUR*24
+MINUTES_WEEK = MINUTES_DAY *7
 
 def from_pretty_time(pretty_time):
     seconds = 0
 
     match = re.match(REGEX_PRETTYTIME, pretty_time)
     if match:
-        seconds += int(match.group(1) or 0)*SECONDS_WEEKS
-        seconds += int(match.group(2) or 0)*SECONDS_DAYS
-        seconds += int(match.group(3) or 0)*SECONDS_HOURS
-        seconds += int(match.group(4) or 0)*SECONDS_MINUTES
+        seconds += int(match.group(1) or 0)*MINUTES_WEEK
+        seconds += int(match.group(2) or 0)*MINUTES_DAY
+        seconds += int(match.group(3) or 0)*MINUTES_HOUR
+        seconds += int(match.group(4) or 0)
 
     if seconds >= 0:
         return seconds
     return None
 
 def on_command(data, buffer, sargs):
-    server = w.buffer_get_string(buffer, 'localvar_server')
-    args   = shlex.split(sargs)
+    server  = w.buffer_get_string(buffer, 'localvar_server')
+    args    = shlex.split(sargs)
+    def_dur = w.config_get_plugin("default-duration")
 
     pieces = [
         "KLINE", # command
-        None,    # duration
+        def_dur, # duration
         None,    # user@host
         None,    # ON
         None,    # server
@@ -59,7 +59,7 @@ def on_command(data, buffer, sargs):
                 duration = from_pretty_time(arg_d)
                 if duration is None:
                     raise ValueError("incorrect kline duration")
-            pieces[1] = str(duration//60)
+            pieces[1] = str(duration)
         elif arg in ["-t", "--target"]:
             args.pop(i)
             if args[i:]:
@@ -93,7 +93,17 @@ def on_command(data, buffer, sargs):
         w.command("", f"/quote -server {server} {line}")
     return w.WEECHAT_RC_OK
 
+SETTINGS = {
+    "default-duration": [str(MINUTES_DAY), "default minutes for hklines"]
+}
+
+
 if import_ok and w.register(SCRIPT_NAME, SCRIPT_AUTHOR, SCRIPT_VERSION, SCRIPT_LICENSE, SCRIPT_DESC, "", ""):
+    for name, (default, description) in SETTINGS.items():
+        if not w.config_is_set_plugin(name):
+            w.config_set_plugin(name, default)
+            w.config_set_desc_plugin(name, description)
+
     w.hook_command(
         "hkline",
         "human-friendly klines",
