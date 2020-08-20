@@ -15,7 +15,8 @@ from ircrobots import Bot as BaseBot
 from ircrobots import Server as BaseServer
 from ircrobots import ConnectionParams, SASLUserPass
 from ircrobots.glob     import compile as glob_compile, Glob
-from ircrobots.matching import Folded, Nick, Response, SELF
+from ircstates.numerics import *
+from ircrobots.matching import ANY, Folded, Nick, Response, SELF
 
 from .dnsbl import DNSBLS
 
@@ -168,8 +169,18 @@ class Server(BaseServer):
             await self.send(build("JOIN", [",".join(CHANS)]))
         elif (line.command == "JOIN" and
                 not self.is_me(line.hostmask.nickname)):
+            nick = line.hostmask.nickname
+            await self.send(build("WHO", [nick, "%int,111"]))
+            who_line = await self.wait_for(
+                Response(RPL_WHOSPCRPL, [ANY, "111", ANY, Folded(nick)])
+            )
+            host = who_line.params[2]
+            if (host == "255.255.255.255" and
+                    line.hostmask.hostname is not None):
+                host = line.hostmask.hostname
+
             user = self.users[self.casefold(line.hostmask.nickname)]
-            fingerprint = f"{line.hostmask.hostname}#{user.realname}"
+            fingerprint = f"{host}#{user.realname}"
             for pattern, mask_templ in PATTERNS:
                 match = re.search(pattern, fingerprint)
                 if match:
