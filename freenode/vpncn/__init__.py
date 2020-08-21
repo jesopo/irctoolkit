@@ -1,7 +1,7 @@
 import asyncio, re, ssl, traceback
 from argparse     import ArgumentParser
 from configparser import ConfigParser
-from typing       import Dict, List, Optional, Tuple
+from typing       import Dict, List, Optional, Pattern, Tuple
 
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
