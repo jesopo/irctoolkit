@@ -5,7 +5,7 @@ certificate's Common Name for bad VPN providers.
 
 ## requirements
 
-> $ pip3 install aiodnsresolver=0.0.151 cryptography==2.7 ircrobots=0.2.14
+> $ pip3 install aiodnsresolver==0.0.151 cryptography==2.7 ircrobots==0.2.14
 
 ## running the bot
 copy `vpncn.conf.example` to `vpncn.conf`, edit the relevant values, and:
