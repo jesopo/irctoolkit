@@ -78,7 +78,8 @@ async def _cert_match(
             values_t = await _cert_values(ip, port)
     except asyncio.TimeoutError:
         print("timeout")
-    except ConnectionRefusedError:
+    except (ConnectionRefusedError,
+            ConnectionResetError):
         pass
     except Exception as e:
         traceback.print_exc()
