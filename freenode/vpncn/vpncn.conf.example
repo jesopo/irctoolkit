@@ -1,13 +1,42 @@
-[bot]
-hostname  = chat.freenode.net
-nickname  = myrobot
-chans     = ##mychannel
-act-soft  = NOTICE ##mychannel-ops :caught {NICK} in {CHAN} for {CN}
-act-hard  = MODE {CHAN} +q {MASK}
-admins    = user@host,user2@host2
-account-grace = on
-sasl-username = myaccount
-sasl-password = hunter2
+hostname: chat.freenode.net
+nickname: vpncn
 
-ports = 443
-bad   = cn:\*\.badvpn\.com
+channels:
+  # set ##reports to have no actions
+  - '##reports': []
+  # use default actions for ##mychannel
+  - '##mychannel'
+
+patterns: {
+    # match @[...]/ip.[...]
+    '^.+/ip\.(?P<ip>[^/]+)#.*$':                    '*!*@*/ip.{IP}',
+    # match #https://webchat.freenode.net
+    '^(?P<ip>[^/]+)#https://webchat.freenode.net$': '*!*@{IP}'
+}
+
+act-sets:
+  report:
+    - [False, 'NOTICE ##reports :caught {NICK}!{USER}@{HOST} in {CHAN} for {REASON}']
+  quiet:
+    - [True,  'MODE {CHAN} +q {MASK}']
+  ban:
+    - [True,  'MODE {CHAN} +b {MASK}']
+  kick:
+    - [True,  'KICK {CHAN} {NICK}']
+
+act-default: [quiet, report]
+
+admins:
+  - '*@myproject/*'
+
+sasl:
+  username: vpncn
+  password: hunter2
+
+bad:
+  443: {
+    # check Subject Common Name
+    'scn:myvpn\.invalid': 'Test VPN 1',
+    # check Issuer Common Name
+    'icn:myvpn\.invalid': 'Test VPN 2',
+  }

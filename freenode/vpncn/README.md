@@ -1,12 +1,16 @@
 # vpncn
 
-A bot to connect to certain users on port :443 and check their TLS
-certificate's Common Name for bad VPN providers.
+A bot to scan users for commonly abused VPN providers, via tls certificate
+finterprinting.
 
 ## requirements
 
-> $ pip3 install aiodnsresolver==0.0.151 cryptography==2.7 ircrobots==0.2.14
+```
+$ pip3 install -r requirements.txt
+```
 
 ## running the bot
 copy `vpncn.conf.example` to `vpncn.conf`, edit the relevant values, and:
-> $ python3 vpncn.py vpncn.conf
+```
+$ python3 vpncn vpncn.conf
+```
