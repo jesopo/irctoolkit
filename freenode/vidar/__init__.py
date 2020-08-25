@@ -225,7 +225,7 @@ class Server(BaseServer):
                             print("it does not exist!!")
 
     async def _log(self, line: str):
-        await self.send(build("PRIVMSG", [self._log_chan, line]))
+        await self.send(build("NOTICE", [self._log_chan, line]))
 
 class Bot(BaseBot):
     def __init__(self,
