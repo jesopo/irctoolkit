@@ -2,7 +2,7 @@ import asyncio, os
 from typing import cast, Dict, List, Optional, Set
 
 from irctokens import build, Line
-from ircstates import User
+from ircstates import User, casefold
 from ircstates.names import Name
 from ircrobots import Bot as BaseBot
 from ircrobots import Server as BaseServer
@@ -21,31 +21,38 @@ ADMINS_S = [
 ]
 ADMINS = [gcompile(m) for m in ADMINS_S]
 
-def _masks(user: User) -> List[str]:
+def _masks(casemap: str, user: User) -> List[str]:
     masks: List[str] = []
 
     if (user.username is not None and
             user.hostname is not None and
             user.realname is not None):
-        nickuser = f"{user.nickname}!{user.username}"
-        hostmask = f"{nickuser}@{user.hostname}"
-        masks.append(f"$m:{hostmask}")
-        masks.append(f"$x:{hostmask}#{user.realname}")
-        masks.append(f"$r:{user.realname}")
+        nickuser = casefold(casemap, f"{user.nickname}!{user.username}")
+        realname = casefold(casemap, user.realname)
+        hostname = casefold(casemap, user.hostname)
+        hostmask = f"{nickuser}@{hostname}"
 
+        masks.append(f"$m:{hostmask}")
+        masks.append(f"$x:{hostmask}#{realname}")
+        masks.append(f"$r:{realname}")
+
+        ipmask: Optional[str] = None
         if user.ip is not None and not user.ip == user.hostname:
             ipmask = f"{nickuser}@{user.ip}"
             masks.append(f"$m:{ipmask}")
-            masks.append(f"$x:{ipmask}#{user.realname}")
+            masks.append(f"$x:{ipmask}#{realname}")
         elif "/ip." in user.hostname:
             _, ip = user.hostname.rsplit("/ip.")
             ipmask = f"{nickuser}@{ip}"
+
+        if ipmask is not None:
             masks.append(f"$m:{ipmask}")
-            masks.append(f"$x:{ipmask}#{user.realname}")
+            masks.append(f"$x:{ipmask}#{realname}")
 
 
     if user.account is not None:
-        masks.append(f"$a:{user.account}")
+        account = casefold(casemap, user.account)
+        masks.append(f"$a:{account}")
         masks.append("$a")
     else:
         masks.append("$~a")
@@ -93,7 +100,7 @@ class Server(BaseServer):
 
     async def _check_user(self, user: User, cause: str):
         muser = cast(VidarUser, user)
-        masks = _masks(user)
+        masks = _masks(self.isupport.casemapping, user)
         for mask_id, watch_glob in self._watch_masks.items():
             watch_mask    = self._database.get(mask_id)
             watch_comment = self._database.get_comment(mask_id)
