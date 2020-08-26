@@ -61,8 +61,9 @@ async def _cert_values(
 
 async def _cert_match(
         ip:   str,
-        port: int
-        ) -> Optional[Tuple[int, Pattern]]:
+        port: int,
+        bad:  Dict[Pattern, str]
+        ) -> Optional[Tuple[int, Pattern, str]]:
 
     try:
         async with timeout_(4):
@@ -75,17 +76,18 @@ async def _cert_match(
         traceback.print_exc()
     else:
         values = [f"{k}:{v}" for k, v in values_t]
-        for pattern in CONFIG.bad[port].keys():
+        for pattern in bad.keys():
             for value in values:
                 if pattern.fullmatch(value):
-                    return (port, pattern)
+                    return (port, pattern, value)
     return None
 
 async def _cert_matches(
-        ip:    str,
+        ip:    str
         ) -> Optional[str]:
 
-    coros = [_cert_match(ip, port) for port in CONFIG.bad.keys()]
+    ports = list(CONFIG.bad.keys())
+    coros = [_cert_match(ip, port, CONFIG.bad[port]) for port in ports]
     tasks = set(asyncio.ensure_future(c) for c in coros)
     while tasks:
         finished, unfinished = await asyncio.wait(
@@ -98,10 +100,10 @@ async def _cert_matches(
                     task.cancel()
                 if unfinished:
                     await asyncio.wait(unfinished)
-                port, pattern = result
-                description   = CONFIG.bad[port][pattern]
 
-                return f"{pattern.pattern} (:{port} {description})"
+                port, pattern, value = result
+                desc = CONFIG.bad[port][pattern]
+                return f"{value} (:{port} {desc})"
         tasks = set(asyncio.ensure_future(f) for f in unfinished)
     return None
 
