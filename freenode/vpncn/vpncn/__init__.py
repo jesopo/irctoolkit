@@ -190,6 +190,8 @@ class Server(BaseServer):
         elif (line.command == "JOIN" and
                 not self.is_me(line.hostmask.nickname)):
             nick = line.hostmask.nickname
+            user = self.users[self.casefold(nick)]
+
             await self.send(build("WHO", [nick, "%int,111"]))
             who_line = await self.wait_for(
                 Response(RPL_WHOSPCRPL, [ANY, "111", ANY, Folded(nick)])
@@ -199,7 +201,6 @@ class Server(BaseServer):
                     line.hostmask.hostname is not None):
                 host = line.hostmask.hostname
 
-            user = self.users[self.casefold(nick)]
             fingerprint = f"{host}#{user.realname}"
             for pattern, mask_templ in CONFIG.patterns.items():
                 match = pattern.search(fingerprint)
