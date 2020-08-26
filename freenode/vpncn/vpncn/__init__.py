@@ -4,7 +4,6 @@ from configparser import ConfigParser
 from dataclasses  import dataclass
 from typing       import Awaitable, Dict, List, Optional, Pattern, Set, Tuple
 
-import yaml
 from OpenSSL import crypto
 
 from async_timeout  import timeout as timeout_
@@ -14,21 +13,13 @@ from ircstates import Channel
 from ircrobots import Bot as BaseBot
 from ircrobots import Server as BaseServer
 from ircrobots import ConnectionParams, SASLUserPass
-from ircrobots.glob     import compile as glob_compile, Glob
 from ircstates.numerics import *
 from ircrobots.matching import ANY, Folded, Nick, Response, SELF
 
-@dataclass
-class Config(object):
-    hostname: str
-    nickname: str
-    sasl:     Tuple[str, str]
-    admins:   List[Glob]
-    patterns: Dict[Pattern, str]
-    act_sets: Dict[str, List[Tuple[bool, str]]]
-    channels: Dict[str, List[str]]
-    bad:      Dict[int, Dict[Pattern, str]]
-CONFIG: Config
+from .config import Config, load_config
+
+CONFIG:      Config
+CONFIG_PATH: str
 
 TLS = ssl.SSLContext(ssl.PROTOCOL_TLS)
 
@@ -182,6 +173,7 @@ class Server(BaseServer):
             await self.send(action)
 
     async def line_read(self, line: Line):
+        global CONFIG
         print(f"{self.name} < {line.format()}")
         if   line.command == "001":
             chans = list(CONFIG.channels.keys())
@@ -228,6 +220,15 @@ class Server(BaseServer):
                 if admin_mask.match(userhost):
                     await self.send(build("JOIN", [line.params[1]]))
                     break
+        elif (line.command == "PRIVMSG" and
+                self.is_me(line.params[0]) and
+                line.params[1] == "rehash"):
+            userhost = f"{line.hostmask.username}@{line.hostmask.hostname}"
+            for admin_mask in CONFIG.admins:
+                if admin_mask.match(userhost):
+                    CONFIG = load_config(CONFIG_PATH)
+                    print("rehashed")
+                    break
 
     async def line_send(self, line: Line):
         print(f"{self.name} > {line.format()}")
@@ -236,9 +237,11 @@ class Bot(BaseBot):
     def create_server(self, name: str):
         return Server(self, name)
 
-async def main(config: Config):
-    global CONFIG
-    CONFIG = config
+async def main(config_path: str):
+    global CONFIG, CONFIG_PATH
+    CONFIG_PATH = config_path
+    config      = load_config(config_path)
+    CONFIG      = config
 
     bot = Bot()
     params = ConnectionParams(
@@ -259,40 +262,4 @@ def init():
     parser.add_argument("config")
     args = parser.parse_args()
 
-    with open(args.config) as f:
-        config = yaml.safe_load(f.read())
-
-    patterns: Dict[Pattern, str] = {}
-    for key, value in config["patterns"].items():
-        patterns[re.compile(key)] = value
-
-    act_default = config["act-default"]
-    chans: Dict[str, List[str]] = {}
-    for chan in config["channels"]:
-        if isinstance(chan, str):
-            chans[chan]   = act_default
-        elif isinstance(chan, dict):
-            chan_k = list(chan.keys())[0]
-            chans[chan_k] = chan[chan_k]
-
-    bad_c = config["bad"]
-    bad: Dict[int, Dict[Pattern, str]] = {}
-    for port in bad_c:
-        if (isinstance(port, int) and
-                isinstance(bad_c[port], dict)):
-            bad[port] = {}
-            for key, value in bad_c[port].items():
-                bad[port][re.compile(key)] = value
-
-    config = Config(
-        config["hostname"],
-        config["nickname"],
-        (config["sasl"]["username"], config["sasl"]["password"]),
-        [glob_compile(m) for m in config["admins"]],
-        patterns,
-        config["act-sets"],
-        chans,
-        bad
-    )
-
-    asyncio.run(main(config))
+    asyncio.run(main(args.config))
