@@ -1,113 +1,19 @@
 import asyncio, itertools, re, ssl, traceback
-from argparse     import ArgumentParser
-from configparser import ConfigParser
-from dataclasses  import dataclass
-from typing       import Awaitable, Dict, List, Optional, Pattern, Set, Tuple
-
-from OpenSSL import crypto
-
-from async_timeout  import timeout as timeout_
+from typing    import Dict, List, Optional, Pattern, Set, Tuple
 
 from irctokens import build, Line, tokenise
-from ircstates import Channel
+from ircstates import Channel, User
 from ircrobots import Bot as BaseBot
 from ircrobots import Server as BaseServer
 from ircrobots import ConnectionParams, SASLUserPass
 from ircstates.numerics import *
 from ircrobots.matching import ANY, Folded, Nick, Response, SELF
 
-from .config import CertPattern, Config, load_config
+from .config   import Config, load_config
+from .scanners import CertScanner
 
 CONFIG:      Config
 CONFIG_PATH: str
-
-TLS = ssl.SSLContext(ssl.PROTOCOL_TLS)
-
-def _bytes_dict(d: List[Tuple[bytes, bytes]]) -> Dict[str, str]:
-    return {k.decode("utf8"): v.decode("utf8") for k, v in d}
-
-async def _cert_values(
-        ip:   str,
-        port: int
-        ) -> List[Tuple[str, str]]:
-    reader, writer = await asyncio.open_connection(ip, port, ssl=TLS)
-    cert = writer.transport._ssl_protocol._sslpipe.ssl_object.getpeercert(True)
-    writer.close()
-    await writer.wait_closed()
-
-    x509 = crypto.load_certificate(crypto.FILETYPE_ASN1, cert)
-
-    subject = _bytes_dict(x509.get_subject().get_components())
-    issuer  = _bytes_dict(x509.get_issuer().get_components())
-
-    values: List[Tuple[str, str]] = [
-        ("scn", subject['CN']),
-        ("icn", issuer['CN']),
-    ]
-    if "O" in subject:
-        values.append(("son", subject["O"]))
-    if "O" in issuer:
-        values.append(("ion", issuer["O"]))
-
-    for i in range(x509.get_extension_count()):
-        ext = x509.get_extension(i)
-        if ext.get_short_name() == b"subjectAltName":
-            sans = str(ext).split(", ")
-            sans = [s.split(":", 1)[1] for s in sans]
-            for san in sans:
-                values.append(("san", san))
-
-    return values
-
-async def _cert_match(
-        ip:    str,
-        port:  int,
-        certs: List[CertPattern]
-        ) -> Optional[str]:
-
-    try:
-        async with timeout_(4):
-            values_t = await _cert_values(ip, port)
-    except asyncio.TimeoutError:
-        print("timeout")
-    except ConnectionError:
-        pass
-    except Exception as e:
-        traceback.print_exc()
-    else:
-        values = [f"{k}:{v}" for k, v in values_t]
-        for cert in certs:
-            for pattern in cert.find:
-                for value in values:
-                    if pattern.fullmatch(value):
-                        return f"{value} (:{port} {cert.name})"
-    return None
-
-async def _cert_matches(
-        ip:    str
-        ) -> Optional[str]:
-
-    coros = [_cert_match(ip, p, c) for p, c in CONFIG.bad.items()]
-    tasks = set(asyncio.ensure_future(c) for c in coros)
-    while tasks:
-        finished, unfinished = await asyncio.wait(
-            tasks, return_when=asyncio.FIRST_COMPLETED
-        )
-        for fin in finished:
-            result = fin.result()
-            if result is not None:
-                for task in unfinished:
-                    task.cancel()
-                if unfinished:
-                    await asyncio.wait(unfinished)
-
-                return result
-        tasks = set(asyncio.ensure_future(f) for f in unfinished)
-    return None
-
-async def _match(ip: str) -> Optional[str]:
-    reason = await _cert_matches(ip)
-    return reason
 
 CHANSERV = Nick("ChanServ")
 
@@ -127,11 +33,12 @@ class Server(BaseServer):
             return True
 
     async def _act(self,
-            line:   Line,
+            user:   User,
+            chan:   Channel,
             mask:   str,
             ip:     str,
             reason: str):
-        chan       = self.channels[self.casefold(line.params[0])]
+
         act_sets   = CONFIG.act_defaults
         act_sets_c = CONFIG.channels.get(chan.name_lower, None)
         if act_sets_c is not None:
@@ -144,9 +51,9 @@ class Server(BaseServer):
 
         data = {
             "CHAN":   chan.name,
-            "NICK":   line.hostmask.nickname,
-            "USER":   line.hostmask.username,
-            "HOST":   line.hostmask.hostname,
+            "NICK":   user.nickname,
+            "USER":   user.username,
+            "HOST":   user.hostname,
             "MASK":   mask,
             "IP":     ip,
             "REASON": reason
@@ -176,16 +83,36 @@ class Server(BaseServer):
                     action = build("MODE", [chan.name, "-o", self.nickname])
             await self.send(action)
 
+    async def _scan(self,
+            user: User,
+            chan: Channel,
+            host: str):
+        for host_pattern, mask_template in CONFIG.host_patterns:
+            match = host_pattern.search(host)
+            if match:
+                ip   = match.group("ip")
+                mask = mask_template.format(IP=ip)
+
+                list_modes = (
+                    chan.list_modes.get("b", [])+
+                    chan.list_modes.get("q", []))
+                if not mask in list_modes:
+                    reason = await CertScanner().scan(ip, CONFIG.bad)
+                    if reason is not None:
+                        await self._act(user, chan, mask, ip, reason)
+
     async def line_read(self, line: Line):
         global CONFIG
         print(f"{self.name} < {line.format()}")
         if   line.command == "001":
             chans = list(CONFIG.channels.keys())
             await self.send(build("JOIN", [",".join(chans)]))
+
         elif (line.command == "JOIN" and
                 not self.is_me(line.hostmask.nickname)):
             nick = line.hostmask.nickname
             user = self.users[self.casefold(nick)]
+            chan = self.channels[self.casefold(line.params[0])]
 
             await self.send(build("WHO", [nick, "%int,111"]))
             who_line = await self.wait_for(
@@ -196,21 +123,7 @@ class Server(BaseServer):
                     line.hostmask.hostname is not None):
                 host = line.hostmask.hostname
 
-            for pattern, mask_templ in CONFIG.host_patterns:
-                match = pattern.search(host)
-                if match:
-                    chan = self.channels[self.casefold(line.params[0])]
-                    ip   = match.group("ip")
-                    mask = mask_templ.format(IP=ip)
-
-                    list_modes = (chan.list_modes.get("b", [])+
-                        chan.list_modes.get("q", []))
-                    if not mask in list_modes:
-                        reason = await _match(ip)
-                        if reason is not None:
-                            await self._act(line, mask, ip, reason)
-                    else:
-                        print("already caught")
+            await self._scan(user, chan, host)
 
         elif (line.command == "JOIN" and
                 self.is_me(line.hostmask.nickname)):
@@ -258,11 +171,3 @@ async def main(config_path: str):
 
     await bot.add_server("server", params)
     await bot.run()
-
-def init():
-    parser = ArgumentParser(
-        description="Catch VPN users by certificate fingerprinting")
-    parser.add_argument("config")
-    args = parser.parse_args()
-
-    asyncio.run(main(args.config))
