@@ -16,7 +16,7 @@ from ircrobots import ConnectionParams, SASLUserPass
 from ircstates.numerics import *
 from ircrobots.matching import ANY, Folded, Nick, Response, SELF
 
-from .config import Config, load_config
+from .config import CertPattern, Config, load_config
 
 CONFIG:      Config
 CONFIG_PATH: str
@@ -60,10 +60,10 @@ async def _cert_values(
     return values
 
 async def _cert_match(
-        ip:   str,
-        port: int,
-        bad:  Dict[Pattern, str]
-        ) -> Optional[Tuple[int, Pattern, str]]:
+        ip:    str,
+        port:  int,
+        certs: List[CertPattern]
+        ) -> Optional[str]:
 
     try:
         async with timeout_(4):
@@ -76,18 +76,18 @@ async def _cert_match(
         traceback.print_exc()
     else:
         values = [f"{k}:{v}" for k, v in values_t]
-        for pattern in bad.keys():
-            for value in values:
-                if pattern.fullmatch(value):
-                    return (port, pattern, value)
+        for cert in certs:
+            for pattern in cert.find:
+                for value in values:
+                    if pattern.fullmatch(value):
+                        return f"{value} (:{port} {cert.name})"
     return None
 
 async def _cert_matches(
         ip:    str
         ) -> Optional[str]:
 
-    ports = list(CONFIG.bad.keys())
-    coros = [_cert_match(ip, port, CONFIG.bad[port]) for port in ports]
+    coros = [_cert_match(ip, p, c) for p, c in CONFIG.bad.items()]
     tasks = set(asyncio.ensure_future(c) for c in coros)
     while tasks:
         finished, unfinished = await asyncio.wait(
@@ -101,9 +101,7 @@ async def _cert_matches(
                 if unfinished:
                     await asyncio.wait(unfinished)
 
-                port, pattern, value = result
-                desc = CONFIG.bad[port][pattern]
-                return f"{value} (:{port} {desc})"
+                return result
         tasks = set(asyncio.ensure_future(f) for f in unfinished)
     return None
 
@@ -133,10 +131,14 @@ class Server(BaseServer):
             mask:   str,
             ip:     str,
             reason: str):
-        chan     = self.channels[self.casefold(line.params[0])]
-        act_sets = CONFIG.channels.get(chan.name_lower, [])
-        act_cmds = [CONFIG.act_sets[a] for a in act_sets]
-        acts     = list(itertools.chain(*act_cmds))
+        chan       = self.channels[self.casefold(line.params[0])]
+        act_sets   = CONFIG.act_defaults
+        act_sets_c = CONFIG.channels.get(chan.name_lower, None)
+        if act_sets_c is not None:
+            act_sets = act_sets_c
+
+        act_cmds   = [CONFIG.act_sets[a] for a in act_sets]
+        acts       = list(itertools.chain(*act_cmds))
         # put False (non-op) acts first
         acts.sort(key=lambda x: x[0])
 
@@ -194,9 +196,8 @@ class Server(BaseServer):
                     line.hostmask.hostname is not None):
                 host = line.hostmask.hostname
 
-            fingerprint = f"{host}#{user.realname}"
-            for pattern, mask_templ in CONFIG.patterns.items():
-                match = pattern.search(fingerprint)
+            for pattern, mask_templ in CONFIG.host_patterns:
+                match = pattern.search(host)
                 if match:
                     chan = self.channels[self.casefold(line.params[0])]
                     ip   = match.group("ip")

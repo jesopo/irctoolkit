@@ -7,12 +7,13 @@ channels:
   # use default actions for ##mychannel
   - '##mychannel'
 
-patterns: {
+
+host-patterns: [
     # match @[...]/ip.[...]
-    '^.+/ip\.(?P<ip>[^/]+)#.*$':                    '*!*@*/ip.{IP}',
-    # match #https://webchat.freenode.net
-    '^(?P<ip>[^/]+)#https://webchat.freenode.net$': '*!*@{IP}'
-}
+    ['^.+/ip\.(?P<ip>[^/]+)$', '*!*@*/ip.{IP}'],
+    # match non-cloak
+    ['^(?P<ip>[^/]+)$',        '*!*@{IP}']
+]
 
 act-sets:
   report:
@@ -28,15 +29,20 @@ act-default: [quiet, report]
 
 admins:
   - '*@myproject/*'
-
 sasl:
   username: vpncn
   password: hunter2
 
+cert-patterns:
+  test-vpn-1:
+    name: "Test VPN 1"
+    find: ['scn:myvpn\.invalid']
+  test-vpn-2:
+    name: "Test VPN 2"
+    find: ['icn:myvpn\.invalid']
+
 bad:
-  443: {
-    # check Subject Common Name
-    'scn:myvpn\.invalid': 'Test VPN 1',
-    # check Issuer Common Name
-    'icn:myvpn\.invalid': 'Test VPN 2',
-  }
+  443:
+    - test-vpn-1
+  8443:
+    - test-vpn-2
