@@ -46,7 +46,7 @@ class CertScanner(object):
             if ext.get_short_name() == b"subjectAltName":
                 sans = ext.get_data()[4:].split(b"\x82\x18")
                 for san in sans:
-                    values.append(("san", san.decode("ascii")))
+                    values.append(("san", san.decode("latin-1")))
 
         return values
 
