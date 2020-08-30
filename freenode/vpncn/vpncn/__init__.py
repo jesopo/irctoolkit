@@ -18,6 +18,10 @@ CONFIG_PATH: str
 CHANSERV = Nick("ChanServ")
 
 class Server(BaseServer):
+    def __init__(self, bot: BaseBot, name: str):
+        super().__init__(bot, name)
+        self._whox: Dict[str, List[str]] = {}
+
     async def _cs_op(self, channel: Channel) -> bool:
         await self.send(build(
             "PRIVMSG", ["ChanServ", f"OP {channel.name}"]
@@ -110,20 +114,37 @@ class Server(BaseServer):
 
         elif (line.command == "JOIN" and
                 not self.is_me(line.hostmask.nickname)):
-            nick = line.hostmask.nickname
-            user = self.users[self.casefold(nick)]
-            chan = self.channels[self.casefold(line.params[0])]
+            nick = self.casefold(line.hostmask.nickname)
+            chan = self.casefold(line.params[0])
+
+            if not nick in self._whox:
+                self._whox[nick] = []
+            self._whox[nick].append(chan)
 
             await self.send(build("WHO", [nick, "%int,111"]))
-            who_line = await self.wait_for(
-                Response(RPL_WHOSPCRPL, [ANY, "111", ANY, Folded(nick)])
-            )
-            host = who_line.params[2]
-            if (host == "255.255.255.255" and
-                    line.hostmask.hostname is not None):
-                host = line.hostmask.hostname
 
-            await self._scan(user, chan, host)
+        elif (line.command == RPL_WHOSPCRPL and
+                line.params[1] == "111"):
+            nick = self.casefold(line.params[3])
+            print("whox", nick)
+
+            if nick in self.users:
+                user = self.users[nick]
+                chan = self.channels[self._whox[nick][0]]
+                host = line.params[2]
+                if (host == "255.255.255.255" and
+                        line.hostmask.hostname is not None):
+                    host = line.hostmask.hostname
+
+                await self._scan(user, chan, host)
+
+        elif line.command == RPL_ENDOFWHO:
+            nick = self.casefold(line.params[1])
+            if nick in self._whox:
+                print("popping", nick, self._whox[nick].pop(0))
+                if not self._whox[nick]:
+                    print("removing", nick)
+                    del self._whox[nick]
 
         elif (line.command == "JOIN" and
                 self.is_me(line.hostmask.nickname)):
@@ -136,6 +157,7 @@ class Server(BaseServer):
                 if admin_mask.match(userhost):
                     await self.send(build("JOIN", [line.params[1]]))
                     break
+
         elif (line.command == "PRIVMSG" and
                 self.is_me(line.params[0]) and
                 line.params[1] == "rehash"):
