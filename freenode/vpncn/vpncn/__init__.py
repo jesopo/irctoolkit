@@ -132,9 +132,8 @@ class Server(BaseServer):
                 user = self.users[nick]
                 chan = self.channels[self._whox[nick][0]]
                 host = line.params[2]
-                if (host == "255.255.255.255" and
-                        line.hostmask.hostname is not None):
-                    host = line.hostmask.hostname
+                if host == "255.255.255.255":
+                    host = user.hostname
 
                 await self._scan(user, chan, host)
 
