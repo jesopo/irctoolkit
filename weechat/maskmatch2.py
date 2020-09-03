@@ -274,4 +274,5 @@ if import_ok and w.register(SCRIPT_NAME, SCRIPT_AUTHOR, SCRIPT_VERSION, SCRIPT_L
             w.config_set_desc_plugin(name, description)
 
     w.hook_signal("*,irc_in_MODE", "on_channel_mode", "")
-    w.hook_command("mm2", "maskmatch2", "", "", "", "on_command", "")
+    w.hook_command("mm",        "maskmatch2", "", "", "", "on_command", "")
+    w.hook_command("maskmatch", "maskmatch2", "", "", "", "on_command", "")
