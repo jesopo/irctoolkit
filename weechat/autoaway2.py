@@ -48,6 +48,9 @@ def _action():
 def signal_privmsg(data, signal, signal_data):
     _action()
     return w.WEECHAT_RC_OK
+def signal_unaway(data, signal, signal_data):
+    _action()
+    return w.WEECHAT_RC_OK
 def command_input(data, buffer, command):
     _action()
     return w.WEECHAT_RC_OK
@@ -67,6 +70,12 @@ if import_ok and w.register(SCRIPT_NAME, SCRIPT_AUTHOR, SCRIPT_VERSION, SCRIPT_L
     w.hook_signal(
         "*,irc_out_privmsg",
         "signal_privmsg",
+        ""
+    )
+    # catch us no longer being marked as away, for manual /away
+    w.hook_signal(
+        "*,irc_in_305",
+        "signal_unaway",
         ""
     )
     # catch weechat-android switching buffers
