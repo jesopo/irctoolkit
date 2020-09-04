@@ -11,7 +11,7 @@ SCRIPT_NAME    = "autoaway2"
 SCRIPT_AUTHOR  = "jesopo"
 SCRIPT_VERSION = "0.1"
 SCRIPT_LICENSE = "MIT"
-SCRIPT_DESC    = "auto_away but cooler"
+SCRIPT_DESC    = "auto_away.py but cooler"
 
 LAST_ACTION = 0
 
