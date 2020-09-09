@@ -38,21 +38,27 @@ def tokenise_line(line):
 
     return source, command, args
 
-def signal_notice(data, signal, network, line):
-    source, command, args = tokenise_line(line)
+def modify_notice(data, signal, network, line):
+    infolist  = w.infolist_get("irc_server", "", network)
+    connected = w.infolist_integer(infolist, "is_connected")
+    w.infolist_free(infolist)
 
-    if (source is not None and
-            not "!" in source and
-            "." in source
-            and args[0] == "*"):
-        buf   = w.buffer_search("", "snotebuf")
-        nickc = w.color(w.info_get("nick_color_name", source))
-        reset = w.color("reset")
+    if connected:
+        source, command, args = tokenise_line(line)
 
-        w.prnt(buf, f"-{nickc}{source}{reset}- {args[-1]}")
-        return ""
-    else:
-        return line
+        if (source is not None and
+                not "!" in source and
+                "." in source and
+                args[0] == "*"):
+
+            buf   = w.buffer_search("", "snotebuf")
+            nickc = w.color(w.info_get("nick_color_name", source))
+            reset = w.color("reset")
+
+            w.prnt(buf, f"-{nickc}{source}{reset}- {args[-1]}")
+            return ""
+
+    return line
 
 if import_ok and w.register(SCRIPT_NAME, SCRIPT_AUTHOR, SCRIPT_VERSION, SCRIPT_LICENSE, SCRIPT_DESC, "", ""):
     buf = w.buffer_search("", "snotebuf")
@@ -63,6 +69,6 @@ if import_ok and w.register(SCRIPT_NAME, SCRIPT_AUTHOR, SCRIPT_VERSION, SCRIPT_L
 
     w.hook_modifier(
         "irc_in2_notice",
-        "signal_notice",
+        "modify_notice",
         ""
     )
