@@ -69,7 +69,7 @@ def tokenise_line(line):
 
     return source, command, args
 
-def do_action(server, chan, actions, nick, user, host):
+def do_action(server, channel, actions, nick, user, host):
     if "/" in host:
         parts = host.split("/")
         if parts[-1].startswith("ip."):
@@ -84,21 +84,25 @@ def do_action(server, chan, actions, nick, user, host):
     elif host.startswith("gateway/web/irccloud.com/"):
         user = f"?{user[1:]}"
 
-    mask = f"*!{user}@{host}"
-
+    mask  = f"*!{user}@{host}"
+    lines = []
     if "ban" in actions:
-        line = f"MODE {chan} +b {mask}"
-        w.command('', f"/quote -server {server} {line}")
+        lines.append(f"MODE {channel} +b {mask}")
     if "quiet" in actions:
-        line = f"MODE {chan} +q {mask}"
-        w.command('', f"/quote -server {server} {line}")
+        lines.append(f"MODE {channel} +q {mask}")
     if "kick" in actions:
-        line = f"KICK {chan} {nick}"
-        w.command('', f"/quote -server {server} {line}")
+        lines.append(f"KICK {channel} {nick}")
     if "debug" in actions:
-        sbuf = w.info_get("irc_buffer", server)
-        line = f"[smartban] chan: {chan} nick: {nick} mask: {mask}"
-        w.prnt(sbuf, line)
+        cbuf  = w.buffer_search("irc", f"{server}.{channel}")
+        color = w.color("green")
+        reset = w.color("reset")
+
+        line  = f"[{color}smartban{reset}] "
+        line += f"channel: {channel} / nick: {nick} / mask: {mask}"
+        w.prnt(cbuf, line)
+
+    for line in lines:
+        w.command('', f"/quote -server {server} {line}")
 
 def modify_whox(data, signal, server, line):
     source, command, args = tokenise_line(line)
@@ -169,12 +173,15 @@ def on_skb_command(data, buffer, args):
     return on_command(buffer, args, ["kick", "ban"])
 def on_squiet_command(data, buffer, args):
     return on_command(buffer, args, ["quiet"])
+def on_sdebug_command(data, buffer, args):
+    return on_command(buffer, args, ["debug"])
 
 if import_ok and w.register(SCRIPT_NAME, SCRIPT_AUTHOR, SCRIPT_VERSION, SCRIPT_LICENSE, SCRIPT_DESC, "", ""):
 
     w.hook_command("sban",   "smartbans", '', '', '', "on_sban_command", "")
     w.hook_command("skb",    "smartbans", '', '', '', "on_skb_command", "")
     w.hook_command("squiet", "smartbans", '', '', '', "on_squiet_command", "")
+    w.hook_command("sdebug", "smartbans", '', '', '', "on_sdebug_command", "")
 
     w.hook_modifier(
         "irc_in2_354",
