@@ -106,17 +106,21 @@ def do_action(server, channel, actions, nick, user, host):
 
 def modify_whox(data, signal, server, line):
     source, command, args = tokenise_line(line)
-    if args[1] == "427" and len(args) == 5:
-        nick = args[4]
+    if args[1] == "582" and len(args) == 6:
+        nick = args[5]
         key  = _waiting_key(server, nick)
 
         global WAITING
         if key in WAITING:
             user = args[2]
             ip   = args[3]
+            host = args[4]
             chan, actions = WAITING[key][0]
 
-            do_action(server, chan, actions, nick, user, ip)
+            if not "/" in host:
+                host = ip
+
+            do_action(server, chan, actions, nick, user, host)
             return ""
     return line
 
@@ -164,7 +168,7 @@ def on_command(buffer, args, actions):
             WAITING[key] = []
         WAITING[key].append((channel, actions))
 
-        w.command('', f"/quote -server {server} WHO {nick} %intu,427")
+        w.command('', f"/quote -server {server} WHO {nick} %ihntu,582")
     return w.WEECHAT_RC_OK
 
 def on_sban_command(data, buffer, args):
