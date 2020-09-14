@@ -81,7 +81,8 @@ def do_action(server, channel, actions, nick, user, host):
 
     if user.startswith("~"):
         user = "*"
-    elif host.startswith("gateway/web/irccloud.com/"):
+    elif (host.startswith("gateway/web/irccloud.com/") or
+            host.startswith("irccloud/")):
         user = f"?{user[1:]}"
 
     mask  = f"*!{user}@{host}"
