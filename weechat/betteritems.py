@@ -138,7 +138,7 @@ if import_ok and w.register(SCRIPT_NAME, SCRIPT_AUTHOR, SCRIPT_VERSION, SCRIPT_L
     w.bar_item_new("better_cmodes", "bar_item_cmodes", "")
     items_modes_update()
 
-    w.hook_config(f"plugins.var.python.{SCRIPT_NAME}.*", "hook_config", '')
+    w.hook_config(f"plugins.var.python.{SCRIPT_NAME}.*", "config_all", '')
     w.hook_signal("*,irc_in_MODE", "signal_mode", '')
     w.hook_signal("*,irc_in_221", "signal_mode", '') # RPL_UMODEIS
     w.hook_signal("*,irc_in_324", "signal_mode", '') # RPL_CHANNELMODEIS
