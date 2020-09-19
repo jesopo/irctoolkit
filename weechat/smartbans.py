@@ -69,7 +69,7 @@ def tokenise_line(line):
 
     return source, command, args
 
-def do_action(server, channel, actions, nick, user, host):
+def do_action(server, channel, actions, nick, user, host, reason):
     if "/" in host:
         parts = host.split("/")
         if parts[-1].startswith("ip."):
@@ -92,8 +92,11 @@ def do_action(server, channel, actions, nick, user, host):
     if "quiet" in actions:
         lines.append(f"MODE {channel} +q {mask}")
     if "kick" in actions:
-        lines.append(f"KICK {channel} {nick}")
-    if "debug" in actions:
+        line = f"KICK {channel} {nick}"
+        if reason:
+            line += f" :{reason}"
+        lines.append(line)
+    if "debug" in actions or True:
         cbuf  = w.buffer_search("irc", f"{server}.{channel}")
         color = w.color("green")
         reset = w.color("reset")
@@ -116,12 +119,12 @@ def modify_whox(data, signal, server, line):
             user = args[2]
             ip   = args[3]
             host = args[4]
-            chan, actions = WAITING[key][0]
+            chan, actions, reason = WAITING[key][0]
 
             if not "/" in host:
                 host = ip
 
-            do_action(server, chan, actions, nick, user, host)
+            do_action(server, chan, actions, nick, user, host, reason)
             return ""
     return line
 
@@ -152,7 +155,8 @@ def on_command(buffer, args, actions):
         return w.WEECHAT_RC_ERROR
     server  = w.buffer_get_string(buffer, 'localvar_server')
 
-    nick = args.split()[0]
+    nick, _, reason = args.partition(" ")
+
     info = w.infolist_get("irc_nick", '', f"{server},{channel},{nick}")
     w.infolist_next(info)
     host = w.infolist_string(info, "host")
@@ -161,13 +165,13 @@ def on_command(buffer, args, actions):
     user, sep, host = host.rpartition("@")
 
     if sep and ("/" in host or _is_ip(host)):
-        do_action(server, channel, actions, nick, user, host)
+        do_action(server, channel, actions, nick, user, host, reason)
     else:
         key = _waiting_key(server, nick)
         global WAITING
         if not key in WAITING:
             WAITING[key] = []
-        WAITING[key].append((channel, actions))
+        WAITING[key].append((channel, actions, reason))
 
         w.command('', f"/quote -server {server} WHO {nick} %ihntu,582")
     return w.WEECHAT_RC_OK
