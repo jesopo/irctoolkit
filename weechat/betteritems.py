@@ -29,10 +29,13 @@ def default_umodes(server):
         if not mode[0] == "+":
             # ISUPPORT mode
             name, default = mode.split("=", 1)
-            mode = w.info_get(
-                "irc_server_isupport_value",
-                f"{server},{name}"
-            ) or default
+            if w.info_get("irc_server_isupport", f"{server},{name}") == "1":
+                mode = w.info_get(
+                    "irc_server_isupport_value",
+                    f"{server},{name}"
+                ) or default
+            else:
+                continue
         else:
             mode = mode[1:]
 
