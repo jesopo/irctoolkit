@@ -109,7 +109,10 @@ def bar_item_cmodes(data, item, window):
             else:
                 modes[i] = (mode, None)
         args.clear()
+
         modes.sort(key=lambda m: m[0])
+        if w.config_get_plugin("args-first") == "yes":
+            modes.sort(key=lambda m: 0 if m[1] else 1)
 
         modesf = mode_setting("cmodes", server) or default_cmodes(server)
         for i, (mode, arg) in enumerate(modes):
@@ -210,7 +213,16 @@ def signal_mode(data, signal, signal_data):
     items_update()
     return w.WEECHAT_RC_OK
 
+SETTINGS = {
+    "args-first": ["no", "whether or not to sort modes with args first"]
+}
+
 if import_ok and w.register(SCRIPT_NAME, SCRIPT_AUTHOR, SCRIPT_VERSION, SCRIPT_LICENSE, SCRIPT_DESC, "", ""):
+    for name, (default, description) in SETTINGS.items():
+        if not w.config_is_set_plugin(name):
+            w.config_set_plugin(name, default)
+            w.config_set_desc_plugin(name, description)
+
     w.bar_item_new("better_nick",   "bar_item_nick",   "")
     w.bar_item_new("better_umodes", "bar_item_umodes", "")
     w.bar_item_new("better_cmodes", "bar_item_cmodes", "")
