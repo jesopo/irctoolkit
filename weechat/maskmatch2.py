@@ -167,11 +167,13 @@ def _match_one(extban, mask, users_masks):
     return affected
 
 def _match_many(masks, users_masks):
-    matches = []
+    matches = {}
     for extban, mask, orig_mask in masks:
         affected = _match_one(extban, mask, users_masks)
         for nickname in affected:
-            matches.append((orig_mask, nickname))
+            if not orig_mask in matches:
+                matches[orig_mask] = []
+            matches[orig_mask].append(nickname)
     return matches
 
 def _print_matches(from_mode, target, matches):
@@ -183,9 +185,14 @@ def _print_matches(from_mode, target, matches):
         prefix = f"/{prefix}"
     prefix = f"[{pcolor}{prefix}{reset}]"
 
-    for mask, nickname in matches:
-        ncolor = w.color(w.info_get("irc_nick_color_name", nickname))
-        w.prnt(target, f"{prefix} {mask} matches {ncolor}{nickname}{reset}")
+    for mask in sorted(matches.keys()):
+        nicknames = matches[mask]
+        if not from_mode or len(nicknames) <= 20:
+            for nickname in nicknames:
+                ncolor = w.color(w.info_get("irc_nick_color_name", nickname))
+                w.prnt(target, f"{prefix} {mask} matches {ncolor}{nickname}{reset}")
+        else:
+            w.prnt(target, f"{prefix} {mask} matches {len(nicknames)} users")
 
 def _is_whitelisted(server, target):
     whitelist   = w.config_get_plugin("whitelist")
