@@ -33,6 +33,11 @@ sasl:
   username: vpncn
   password: hunter2
 
+dnsbls:
+  dnsbl.dronebl.org: {
+    19: "Abused VPN Service"
+  }
+
 cert-patterns:
   test-vpn-1:
     name: "Test VPN 1"

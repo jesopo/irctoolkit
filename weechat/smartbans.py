@@ -75,7 +75,10 @@ def do_action(server, channel, actions, nick, user, host, reason):
         if parts[-1].startswith("ip."):
             host = f"*/{parts[-1]}"
             user = "*"
-        elif parts[-1].startswith("x-"):
+        elif (parts[-1].startswith("x-") and
+                parts[-1][2:].isalpha()):
+            # cut off /x-abcd but not /x-1234,
+            # the former is a session token
             host, _ = host.rsplit("/", 1)
             host += "/*"
 
