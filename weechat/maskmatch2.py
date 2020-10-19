@@ -96,7 +96,8 @@ def _mode_tokens(modes, args, prefix, chanmodes):
             add = char == "+"
         elif char in prefix:
             args.pop(0) # discard!
-        elif args:
+        elif char in mode_a and args:
+            # we only actually care about listmodes
             if add:
                 has_arg = char in arg_add
             else:
