@@ -1,4 +1,3 @@
-import string
 try:
     import weechat as w
     import_ok = True
@@ -6,6 +5,9 @@ except ImportError:
     print("This script must be run under WeeChat")
     print("Get WeeChat now at: https://weechat.org/")
     import_ok = False
+
+import string
+from ipaddress import ip_address
 
 SCRIPT_NAME    = "maskmatch2"
 SCRIPT_AUTHOR  = "jesopo"
@@ -113,19 +115,21 @@ def _user_masks(server, channel, casemap):
     while w.infolist_next(infolist):
         name = w.infolist_string(infolist, "name")
         host = w.infolist_string(infolist, "host")
+        user, host = host.split("@", 1)
         real = w.infolist_string(infolist, "realname")
         acc  = w.infolist_string(infolist, "account")
 
         masks = []
-        fold_hostmask = _fold(casemap, f"{name}!{host}")
-        fold_realname = _fold(casemap, real)
-        masks.append((False, fold_hostmask))
-        masks.append((True,  f"$x:{fold_hostmask}#{fold_realname}"))
-        masks.append((True,  f"$r:{fold_realname}"))
+        fold_name = _fold(casemap, f"{name}!{user}")
+        fold_host = _fold(casemap, host)
+        fold_real = _fold(casemap, real)
+        masks.append((False, fold_name, fold_host))
+        masks.append((True,  f"$x:{fold_name}#{fold_real}", fold_host))
+        masks.append((True,  f"$r:{fold_real}", None))
 
         if acc:
             fold_account = _fold(casemap, acc)
-            masks.append((True, f"$a:{fold_account}"))
+            masks.append((True, f"$a:{fold_account}", None))
 
         out[name] = masks
     w.infolist_free(infolist)
@@ -143,11 +147,19 @@ def _unique_masks(casemap, masks):
             mask = prefix + sep + _fold(casemap, mask)
         else:
             mask = _fold(casemap, orig_mask)
+
+        if "@" in mask:
+            mask, _,   host = mask.partition("@")
+            host, sep, real = host.partition("#")
+            mask += sep + real
+        else:
+            host = None
+
         mask = _glob_collapse(mask)
 
-        if not mask in seen:
-            seen.add(mask)
-            unique_masks.append((extban, mask, orig_mask))
+        if not (mask, host) in seen:
+            seen.add((mask, host))
+            unique_masks.append((extban, mask, host, orig_mask))
     return unique_masks
 def _unique_mode_masks(casemap, mode_tokens):
     masks = []
@@ -155,21 +167,46 @@ def _unique_mode_masks(casemap, mode_tokens):
         masks.append(mode_arg)
     return _unique_masks(casemap, masks)
 
-def _match_one(extban, mask, users_masks):
-    affected = []
+def _try_ip(ip):
+    try:
+        return ip_address(ip)
+    except ValueError:
+        return None
+def _to_cidr(host):
+    if host.count("/") == 1:
+        host, cidr = host.split("/")
+        if cidr.isdigit():
+            cidr = int(cidr)
+            ip   = _try_ip(host)
+            if ip is not None:
+                rcidr = ip.max_prefixlen-cidr
+                return int(ip)>>rcidr, rcidr
+    return None, None
+
+def _match_one(extban, mask, host, users_masks):
+    affected      = []
+    cidr_ip, rcidr = _to_cidr(host)
     for nickname in sorted(users_masks.keys()):
         user_masks = users_masks[nickname]
-        for user_extban, user_mask in user_masks:
+        for user_extban, user_mask, user_host in user_masks:
             if ((not extban or user_extban) and
                     _glob_match(mask, user_mask)):
-                affected.append(nickname)
-                break
+
+                if cidr_ip is not None:
+                    ip = _try_ip(user_host)
+                    if (ip is not None and
+                            int(ip)>>rcidr == cidr_ip):
+                        affected.append(nickname)
+                        break
+                elif _glob_match(host, user_host):
+                    affected.append(nickname)
+                    break
     return affected
 
 def _match_many(masks, users_masks):
     matches = {}
-    for extban, mask, orig_mask in masks:
-        affected = _match_one(extban, mask, users_masks)
+    for extban, mask, host, orig_mask in masks:
+        affected = _match_one(extban, mask, host, users_masks)
         for nickname in affected:
             if not orig_mask in matches:
                 matches[orig_mask] = []
