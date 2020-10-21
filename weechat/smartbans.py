@@ -70,6 +70,11 @@ def tokenise_line(line):
     return source, command, args
 
 def do_action(server, channel, actions, nick, user, host, reason):
+    if host.startswith("gateway/web/irccloud.com"):
+        user = f"?{user[1:]}"
+    elif user.startswith("~"):
+        user = "*"
+
     if "/" in host:
         parts = host.split("/")
         if parts[-1].startswith("ip."):
@@ -81,12 +86,12 @@ def do_action(server, channel, actions, nick, user, host, reason):
             # the former is a session token
             host, _ = host.rsplit("/", 1)
             host += "/*"
-
-    if user.startswith("~"):
+        else:
+            # unlikely a gateway/nat cloak, dont trust identd
+            user = "*"
+    else:
+        # just a plain IP/rDNS. dont trust identd
         user = "*"
-    elif (host.startswith("gateway/web/irccloud.com/") or
-            host.startswith("irccloud/")):
-        user = f"?{user[1:]}"
 
     mask  = f"*!{user}@{host}"
     lines = []
