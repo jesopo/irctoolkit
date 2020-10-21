@@ -173,7 +173,8 @@ def _try_ip(ip):
     except ValueError:
         return None
 def _to_cidr(host):
-    if host.count("/") == 1:
+    if (host is not None and
+            host.count("/") == 1):
         host, cidr = host.split("/")
         if cidr.isdigit():
             cidr = int(cidr)
@@ -198,7 +199,8 @@ def _match_one(extban, mask, host, users_masks):
                             int(ip)>>rcidr == cidr_ip):
                         affected.append(nickname)
                         break
-                elif _glob_match(host, user_host):
+                elif (host is None or
+                        _glob_match(host, user_host)):
                     affected.append(nickname)
                     break
     return affected
