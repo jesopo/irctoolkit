@@ -105,7 +105,10 @@ def _mode_tokens(modes, args, prefix, chanmodes):
                 has_arg = char in arg_remove
 
             if has_arg:
-                out.append((add, char, args.pop(0)))
+                if char in mode_a:
+                    out.append((add, char, args.pop(0)))
+                else:
+                    args.pop(0)
     return out
 
 def _user_masks(server, channel, casemap):
@@ -141,7 +144,7 @@ def _unique_masks(casemap, masks):
     unique_masks = []
     for orig_mask in masks:
         extban = False
-        if ":" in orig_mask:
+        if orig_mask[0] == "$":
             extban = True
             prefix, sep, mask = orig_mask.partition(":")
             mask = prefix + sep + _fold(casemap, mask)
