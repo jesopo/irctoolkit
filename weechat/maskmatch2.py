@@ -202,7 +202,8 @@ def _match_one(extban, mask, host, users_masks):
                             int(ip)>>rcidr == cidr_ip):
                         affected.append(nickname)
                         break
-                elif (host is None or
+                elif (host is not None and
+                        user_host is not None and
                         _glob_match(host, user_host)):
                     affected.append(nickname)
                     break
