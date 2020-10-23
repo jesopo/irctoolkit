@@ -37,15 +37,18 @@ def tokenise_line(line):
     return source, command, args
 
 def _format_action(server, target, nick, text):
+    white = w.color("white")
+
     snick = w.info_get("irc_nick", server)
     if snick == nick:
-        nickc = w.color("white")
+        nickc = white
     else:
         nickc = w.color(w.info_get("nick_color_name", nick))
+
     chanc = w.color(w.config_string(w.config_get("weechat.color.chat_channel")))
     delim = w.color(w.config_string(w.config_get("weechat.color.chat_delimiters")))
     reset = w.color("reset")
-    return f"* {delim}({reset}{target[0]}{delim}){nickc}{nick}{reset} {text}"
+    return f" {white}* {delim}({reset}{target[0]}{delim}){nickc}{nick}{reset} {text}"
 
 def _statusmsg(server):
     return w.info_get(
