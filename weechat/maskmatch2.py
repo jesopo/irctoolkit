@@ -207,6 +207,10 @@ def _match_one(extban, mask, host, users_masks):
                         _glob_match(host, user_host)):
                     affected.append(nickname)
                     break
+                elif (host is None and
+                        user_host is None):
+                    affected.append(nickname)
+                    break
     return affected
 
 def _match_many(masks, users_masks):
