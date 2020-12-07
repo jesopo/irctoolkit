@@ -40,6 +40,7 @@ def tokenise_line(line):
 
 def modify_notice(data, signal, network, line):
     infolist  = w.infolist_get("irc_server", "", network)
+    w.infolist_next(infolist)
     connected = w.infolist_integer(infolist, "is_connected")
     w.infolist_free(infolist)
 
