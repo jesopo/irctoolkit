@@ -54,7 +54,7 @@ def tokenise_line(line):
     trailing = None
 
     if " :" in line:
-        line, trailing = line.rsplit(" :", 1)
+        line, trailing = line.split(" :", 1)
 
     args = line.split(" ")
 
