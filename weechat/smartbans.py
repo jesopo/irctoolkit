@@ -104,7 +104,7 @@ def do_action(server, channel, actions, nick, user, host, reason):
         if reason:
             line += f" :{reason}"
         lines.append(line)
-    if "debug" in actions or True:
+    if "debug" in actions:
         cbuf  = w.buffer_search("irc", f"{server}.{channel}")
         color = w.color("green")
         reset = w.color("reset")
