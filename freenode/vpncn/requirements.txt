@@ -1,3 +1,3 @@
 ircrobots==0.2.14
 pyopenssl==19.1.0
-pyyaml   ==5.3.1
+pyyaml   ==5.4
