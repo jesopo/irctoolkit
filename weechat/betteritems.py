@@ -213,6 +213,10 @@ def signal_mode(data, signal, signal_data):
     items_update()
     return w.WEECHAT_RC_OK
 
+def signal_nick(data, signal, signal_data):
+    items_update()
+    return w.WEECHAT_RC_OK
+
 SETTINGS = {
     "args-first": ["no", "whether or not to sort modes with args first"]
 }
@@ -238,5 +242,6 @@ if import_ok and w.register(SCRIPT_NAME, SCRIPT_AUTHOR, SCRIPT_VERSION, SCRIPT_L
     w.hook_config("weechat.bar.input.color_delim",       "config_delim",   '')
 
     w.hook_signal("*,irc_in_MODE", "signal_mode", '')
+    w.hook_signal("*,irc_in_NICK", "signal_nick", '')
     w.hook_signal("*,irc_in_221", "signal_mode",  '') # RPL_UMODEIS
     w.hook_signal("*,irc_in_324", "signal_mode",  '') # RPL_CHANNELMODEIS
